@@ -1,5 +1,26 @@
 # ```Symulacja parkingu prostokątnego w OpenGL z parametryzowaną liczbą miejsc postojowych oraz parametryzowanym wymiarem zewnętrznym```
 
+**Bieżąca implementacja (kod):** lampy i modele aut wyłączone; **jedna duża plansza trawy**; asfalt tylko na **parking L×W** i na **pasie drogi** przez trawę (bez dodatkowego asfaltu poza obrysem parkingu); światło kierunkowe i mapa cieni; parametry `--spaces` / `--length`.
+
+### Jak uruchomić (GitHub / nowy komputer)
+
+1. Zainstaluj **CMake 3.20+** i **kompilator C++17** (np. Visual Studio 2022 z „Desktop development with C++” na Windowsie).
+2. W katalogu repozytorium:
+   ```bash
+   cmake -B build -S .
+   cmake --build build --config Release
+   ```
+   Pierwsza konfiguracja wymaga **internetu** (pobierane są GLFW i GLM przez CMake).
+3. Uruchom:
+   - Windows: `build\Release\ParkingLot.exe`
+   - Linux (Ninja/Make): zwykle `./build/ParkingLot`
+
+Przykład: `ParkingLot.exe -n 32 -l 80` — szczegóły w [docs/SETUP.md](docs/SETUP.md).
+
+**GitHub:** nie commituj katalogu `build/` (jest w `.gitignore`). W repozytorium: `CMakeLists.txt`, `src/`, `assets/shaders/`, `third_party/glad/`, `third_party/stb/`. CI: [`.github/workflows/build.yml`](.github/workflows/build.yml).
+
+---
+
 ## 1. Cel rozwiązania
 Celem rozwiązania jest opracowanie aplikacji 3D w technologii OpenGL, która umożliwia wizualizację parkingu o planie prostokąta.
 Podstawowym celem funkcjonalnym projektu jest umożliwienie określenia:
@@ -210,3 +231,9 @@ Zostanie zastosowane:
 - światło ogólne dla sceny,
 - punktowe lub lokalne źródła światła przypisane lampom,
 - osobne ustawienia parametrów światła dla dnia i nocy.
+
+---
+
+## Środowisko programistyczne (CMake)
+
+Konfiguracja projektu, zależności (GLFW, GLM przez CMake `FetchContent`, GLAD 3.3 Core w `third_party/glad`) oraz kompilacja: **[docs/SETUP.md](docs/SETUP.md)**.
