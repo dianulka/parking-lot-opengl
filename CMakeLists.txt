@@ -60,6 +60,46 @@ FetchContent_MakeAvailable(glm)
 
 
 
+# STB — obrazy (tekstury z glTF)
+
+FetchContent_Declare(
+
+  stb
+
+  GIT_REPOSITORY https://github.com/nothings/stb.git
+
+  GIT_TAG master
+
+)
+
+FetchContent_MakeAvailable(stb)
+
+
+
+# Assimp — wczytywanie glTF/glB
+
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+
+set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+
+  assimp
+
+  GIT_REPOSITORY https://github.com/assimp/assimp.git
+
+  GIT_TAG v5.3.1
+
+)
+
+FetchContent_MakeAvailable(assimp)
+
+
+
 # GLAD 2 (generated OpenGL 3.3 Core loader, committed under third_party/glad)
 
 add_library(glad STATIC third_party/glad/src/gl.c)
@@ -88,7 +128,7 @@ add_executable(ParkingLot
 
   src/scene/ParkingScene.cpp
 
-  src/models/TreeMesh.cpp
+  src/models/GltfModel.cpp
 
   src/models/GrassBlades.cpp
 
@@ -104,7 +144,7 @@ target_include_directories(ParkingLot PRIVATE
 
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 
-  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
+  ${stb_SOURCE_DIR}
 
 )
 
@@ -125,6 +165,8 @@ target_link_libraries(ParkingLot PRIVATE
   glfw
 
   glm::glm
+
+  assimp::assimp
 
 )
 

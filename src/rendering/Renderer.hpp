@@ -2,8 +2,10 @@
 
 #include <glm/glm.hpp>
 
+#include "models/GltfModel.hpp"
 #include "models/GrassBlades.hpp"
-#include "models/TreeMesh.hpp"
+
+#include <array>
 #include "rendering/Camera.hpp"
 #include "rendering/Shader.hpp"
 
@@ -35,7 +37,7 @@ private:
   Shader groundShader_;
   Shader grassShader_;
   Shader grassDepthShader_;
-  TreeMesh treeMesh_;
+  std::array<GltfModel, 2> propModels_{};
   GrassBlades grassBlades_;
 
   GLuint quadVao_{0};

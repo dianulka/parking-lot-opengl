@@ -282,12 +282,15 @@ void Renderer::renderShadowPass(const ParkingScene& scene, const glm::mat4& ligh
   glEnable(GL_POLYGON_OFFSET_FILL);
   glPolygonOffset(1.25f, 4.0f);
 
-  if (treeMesh_.ready()) {
-    for (const TreeInstance& t : scene.trees()) {
-      glm::mat4 m = glm::translate(glm::mat4(1.0f), t.position);
-      m = glm::scale(m, glm::vec3(t.scale));
-      treeMesh_.drawShadowCaster(m, lightViewProj, depthShader_);
+  for (const PlacedProp& p : scene.props()) {
+    const int k = static_cast<int>(p.kind);
+    if (k < 0 || k >= static_cast<int>(propModels_.size()) || !propModels_[static_cast<size_t>(k)].ready()) {
+      continue;
     }
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), p.position);
+    m = glm::rotate(m, p.rotY, glm::vec3(0.0f, 1.0f, 0.0f));
+    m = glm::scale(m, glm::vec3(p.scale));
+    propModels_[static_cast<size_t>(k)].drawShadow(m, lightViewProj, depthShader_);
   }
 
   glDisable(GL_POLYGON_OFFSET_FILL);
@@ -358,7 +361,13 @@ void Renderer::init() {
   glEnableVertexAttribArray(0);
   glBindVertexArray(0);
 
-  treeMesh_.create();
+  static const char* kPropRel[] = {
+      "models/1985_toyota_sprinter_trueno_ae86.glb",  // Car
+      "models/scifi_lamp.glb",                        // Lamp
+  };
+  propModels_[0].loadFromFile(assetPath(kPropRel[0]), 4.5f);
+  propModels_[1].loadFromFile(assetPath(kPropRel[1]), 2.8f);
+
   grassBlades_.create();
 }
 
@@ -514,14 +523,24 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
   glActiveTexture(GL_TEXTURE0 + kShadowUnit);
   glBindTexture(GL_TEXTURE_2D, shadowTex_);
 
-  if (treeMesh_.ready()) {
-    glActiveTexture(GL_TEXTURE0 + kModelDiffuseUnit);
-    glBindTexture(GL_TEXTURE_2D, whiteTex_);
-    for (const TreeInstance& t : scene.trees()) {
-      glm::mat4 m = glm::translate(glm::mat4(1.0f), t.position);
-      m = glm::scale(m, glm::vec3(t.scale));
-      treeMesh_.draw(m, vp, lightVP, modelShader_, lightDir, camPos, amb, 0.08f, kShadowUnit, kModelDiffuseUnit);
+  glActiveTexture(GL_TEXTURE0 + kModelDiffuseUnit);
+  glBindTexture(GL_TEXTURE_2D, whiteTex_);
+  for (const PlacedProp& p : scene.props()) {
+    const int k = static_cast<int>(p.kind);
+    if (k < 0 || k >= static_cast<int>(propModels_.size()) || !propModels_[static_cast<size_t>(k)].ready()) {
+      continue;
     }
+    float spec = 0.1f;
+    if (p.kind == PropKind::Car) {
+      spec = 0.16f;
+    } else if (p.kind == PropKind::Lamp) {
+      spec = 0.45f;
+    }
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), p.position);
+    m = glm::rotate(m, p.rotY, glm::vec3(0.0f, 1.0f, 0.0f));
+    m = glm::scale(m, glm::vec3(p.scale));
+    propModels_[static_cast<size_t>(k)].draw(m, vp, lightVP, modelShader_, lightDir, camPos, amb, spec, kShadowUnit,
+                                             kModelDiffuseUnit, whiteTex_);
   }
 
   glActiveTexture(GL_TEXTURE0);

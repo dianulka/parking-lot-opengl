@@ -1,6 +1,6 @@
 # ```Symulacja parkingu prostokątnego w OpenGL z parametryzowaną liczbą miejsc postojowych oraz parametryzowanym wymiarem zewnętrznym```
 
-**Bieżąca implementacja (kod):** lampy i modele aut wyłączone; **jedna duża plansza trawy**; asfalt tylko na **parking L×W** i na **pasie drogi** przez trawę (bez dodatkowego asfaltu poza obrysem parkingu); światło kierunkowe i mapa cieni; parametry `--spaces` / `--length`.
+**Bieżąca implementacja (kod):** modele glTF z `assets/models/` (AE86 na miejscach, lampy sci‑fi przy liniach parkingu i przy pasie drogi); **jedna duża plansza trawy**; asfalt tylko na **parking L×W** i na **pasie drogi** przez trawę (bez dodatkowego asfaltu poza obrysem parkingu); światło kierunkowe i mapa cieni; parametry `--spaces` / `--length`.
 
 ### Jak uruchomić (GitHub / nowy komputer)
 
