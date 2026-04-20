@@ -2,6 +2,9 @@
 
 #include <glm/glm.hpp>
 
+#include "lighting/Lighting.hpp"
+#include "scene/ParkingGenerator.hpp"
+
 #include "models/GltfModel.hpp"
 #include "models/GrassBlades.hpp"
 
@@ -25,9 +28,11 @@ public:
 
   void init();
   void resize(int width, int height);
-  void draw(ParkingScene& scene, Camera& camera, float timeSec);
+  void draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen);
 
 private:
+  void drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode);
+  void drawHudCornerOverlay(const glm::mat4& orthoPx, bool parkingSettingsOpen);
   void initShadowMap();
   void renderShadowPass(const ParkingScene& scene, const glm::mat4& lightViewProj, float timeSec);
 

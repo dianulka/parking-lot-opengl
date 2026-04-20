@@ -1,5 +1,6 @@
 #include "input/Input.hpp"
 
+#include "app/Application.hpp"
 #include "app/WindowHooks.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -27,6 +28,9 @@ void Input::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int actio
 
   switch (key) {
     case GLFW_KEY_ESCAPE:
+      if (h->app && h->app->consumeEscapeForSettings()) {
+        break;
+      }
       glfwSetWindowShouldClose(window, GLFW_TRUE);
       break;
     default:

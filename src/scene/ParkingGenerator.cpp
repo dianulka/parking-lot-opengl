@@ -31,6 +31,16 @@ void ParkingGenerator::setLength(float lengthMeters) {
   clampParameters();
 }
 
+void ParkingGenerator::syncLengthToSpotCount() {
+  clampParameters();
+  const int nLeft = std::max(1, leftRowSpotCount());
+  constexpr float kSlotPitchAlongLotMeters = 4.5f;
+  float L = static_cast<float>(nLeft) * kSlotPitchAlongLotMeters;
+  L = std::clamp(L, kMinLength, kMaxLength);
+  length_ = L;
+  clampParameters();
+}
+
 int ParkingGenerator::spotsPerRow() const {
   return (spotCount_ + 1) / 2;
 }

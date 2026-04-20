@@ -3,6 +3,8 @@ in vec4 vFragPosLightSpace;
 in vec2 vGroundUv;
 in vec3 vWorldPos;
 
+#define MAX_POINT_LIGHTS 48
+
 uniform vec3 uGrassTint;
 uniform vec3 uRoadStripTint;
 uniform vec3 uParkingTint;
@@ -19,6 +21,12 @@ uniform float uHalfParkingL;
 uniform float uHalfParkingW;
 uniform float uHalfRoadW;
 uniform float uHalfGrassL;
+
+uniform int uNumPointLights;
+uniform vec3 uPointPos[MAX_POINT_LIGHTS];
+uniform vec3 uPointColor;
+uniform float uPointIntensity;
+uniform float uPointRadius;
 
 out vec4 FragColor;
 
@@ -66,5 +74,21 @@ void main() {
     base = colGrass;
   }
 
-  FragColor = vec4(base * lit, 1.0);
+  vec3 pointDiff = vec3(0.0);
+  float r2 = max(uPointRadius * uPointRadius, 9.0);
+  for (int i = 0; i < MAX_POINT_LIGHTS; ++i) {
+    if (i >= uNumPointLights) {
+      break;
+    }
+    vec3 toL = uPointPos[i] - vWorldPos;
+    float dist = length(toL);
+    vec3 Lp = toL / max(dist, 1e-4);
+    float att = uPointIntensity / (1.0 + 0.028 * dist + (dist * dist) / r2);
+    float ndp = max(dot(n, Lp), 0.0);
+    float spill = att * 0.055;
+    pointDiff += uPointColor * (ndp * att * 1.55 + spill);
+  }
+
+  vec3 outRgb = base * lit + base * pointDiff;
+  FragColor = vec4(outRgb, 1.0);
 }

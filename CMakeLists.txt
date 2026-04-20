@@ -74,8 +74,6 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(stb)
 
-
-
 # Assimp — wczytywanie glTF/glB
 
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)

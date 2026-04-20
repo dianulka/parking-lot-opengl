@@ -2,6 +2,7 @@
 
 namespace parking {
 
+class Application;
 class Camera;
 class ParkingScene;
 class Renderer;
@@ -11,6 +12,7 @@ struct WindowHooks {
   ParkingScene* scene{nullptr};
   Renderer* renderer{nullptr};
   Camera* camera{nullptr};
+  Application* app{nullptr};
 };
 
 }  // namespace parking

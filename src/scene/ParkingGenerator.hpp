@@ -58,7 +58,8 @@ public:
 
   void setLength(float lengthMeters);
 
-
+  /// Ustawia długość parkingu proporcjonalnie do bieżącej liczby miejsc (rząd z większą liczbą stanowisk × szerokość stanowiska).
+  void syncLengthToSpotCount();
 
   [[nodiscard]] int spotCount() const { return spotCount_; }
 

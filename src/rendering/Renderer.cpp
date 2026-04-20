@@ -1,6 +1,8 @@
 #include "rendering/Renderer.hpp"
 
+#include "app/UiConstants.hpp"
 #include "lighting/Lighting.hpp"
+#include "scene/ParkingGenerator.hpp"
 #include "scene/ParkingScene.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -14,6 +16,9 @@
 #include <string>
 #include <vector>
 
+#define STB_EASY_FONT_IMPLEMENTATION
+#include <stb_easy_font.h>
+
 namespace parking {
 
 namespace {
@@ -24,6 +29,51 @@ namespace {
 
 std::string assetPath(const char* relative) {
   return std::string(PARKING_ASSETS_DIR) + "/" + relative;
+}
+
+void appendEasyFontTriangles(float framebufferHeight, float anchorPrintX, float anchorPrintYTopDown, float scale,
+                             const char* text, std::vector<float>& out) {
+  unsigned char buffer[49152];
+  const int numQuads =
+      stb_easy_font_print(anchorPrintX, anchorPrintYTopDown, const_cast<char*>(text), nullptr, buffer,
+                          static_cast<int>(sizeof(buffer)));
+  const float ax = anchorPrintX;
+  const float ay = anchorPrintYTopDown;
+  for (int q = 0; q < numQuads; ++q) {
+    const unsigned char* base = buffer + q * 64;
+    float vx[4];
+    float vy[4];
+    for (int k = 0; k < 4; ++k) {
+      const float* p = reinterpret_cast<const float*>(base + k * 16);
+      const float xs = ax + (p[0] - ax) * scale;
+      const float ys = ay + (p[1] - ay) * scale;
+      vx[k] = xs;
+      vy[k] = framebufferHeight - ys;
+    }
+    constexpr int triIdx[6] = {0, 1, 2, 0, 2, 3};
+    for (int i = 0; i < 6; ++i) {
+      const int k = triIdx[i];
+      out.push_back(vx[k]);
+      out.push_back(vy[k]);
+      out.push_back(0.0f);
+    }
+  }
+}
+
+void flushHudTriangles(Shader& shader, GLuint vao, GLuint vbo, const glm::mat4& ortho,
+                       const std::vector<float>& verts, float r, float g, float b, float a = 1.0f) {
+  if (verts.empty()) {
+    return;
+  }
+  glBindBuffer(GL_ARRAY_BUFFER, vbo);
+  glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+  shader.use();
+  shader.setMat4("uMVP", glm::value_ptr(ortho));
+  shader.setVec3("uColor", r, g, b);
+  shader.setFloat("uAmbient", 1.0f);
+  shader.setFloat("uAlpha", a);
+  glBindVertexArray(vao);
+  glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(verts.size() / 3));
 }
 
 void appendLine(std::vector<float>& v, float y, float x0, float z0, float x1, float z1) {
@@ -377,7 +427,260 @@ void Renderer::resize(int width, int height) {
   glViewport(0, 0, width, height);
 }
 
-void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
+void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode) {
+  if (fbWidth_ <= 0 || fbHeight_ <= 0) {
+    return;
+  }
+
+  GLboolean depthWas = GL_TRUE;
+  glGetBooleanv(GL_DEPTH_TEST, &depthWas);
+  glDisable(GL_DEPTH_TEST);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  const float fw = static_cast<float>(fbWidth_);
+  const float fh = static_cast<float>(fbHeight_);
+  const glm::mat4 ortho = glm::ortho(0.0f, fw, 0.0f, fh);
+
+  flatShader_.use();
+  glBindVertexArray(lineVao_);
+  glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
+
+  if (parkingSettingsOpen) {
+    using parking::ui::kCornerMarginPx;
+
+    static std::vector<float> hudTriTitle;
+    static std::vector<float> hudTriBody;
+    static std::vector<float> hudTriSmall;
+
+    constexpr float kDimAlpha = 0.38f;
+
+    const float dimVerts[] = {
+        0.f,  0.f,  0.f, fw, 0.f, 0.f, fw, fh, 0.f,  //
+        0.f,  0.f,  0.f, fw, fh, 0.f, 0.f, fh, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(dimVerts), dimVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setMat4("uMVP", glm::value_ptr(ortho));
+    flatShader_.setVec3("uColor", 0.02f, 0.04f, 0.10f);
+    flatShader_.setFloat("uAmbient", 1.0f);
+    flatShader_.setFloat("uAlpha", kDimAlpha);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    constexpr float cw = 580.0f;
+    constexpr float ch = 348.0f;
+    constexpr float titleH = 48.0f;
+    constexpr float kFontScale = 2.05f;
+    constexpr float kFontScaleSmall = 1.55f;
+    constexpr float kPanelFillAlpha = 0.82f;
+    constexpr float kPanelBorderAlpha = 0.88f;
+    constexpr float kPanelTitleBarAlpha = 0.88f;
+
+    const float mx0 = kCornerMarginPx;
+    const float mx1 = mx0 + cw;
+    const float my1 = fh - kCornerMarginPx;
+    const float my0 = my1 - ch;
+    const float ty0 = my1 - titleH;
+
+    const float panelVerts[] = {
+        mx0, my0, 0.f, mx1, my0, 0.f, mx1, my1, 0.f,  //
+        mx0, my0, 0.f, mx1, my1, 0.f, mx0, my1, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(panelVerts), panelVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.15f, 0.17f, 0.22f);
+    flatShader_.setFloat("uAmbient", 1.0f);
+    flatShader_.setFloat("uAlpha", kPanelFillAlpha);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    const float borderVerts[] = {
+        mx0, my0, 0.f, mx1, my0, 0.f,  //
+        mx1, my0, 0.f, mx1, my1, 0.f,  //
+        mx1, my1, 0.f, mx0, my1, 0.f,  //
+        mx0, my1, 0.f, mx0, my0, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(borderVerts), borderVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.38f, 0.62f, 0.95f);
+    flatShader_.setFloat("uAlpha", kPanelBorderAlpha);
+    glLineWidth(2.5f);
+    glDrawArrays(GL_LINES, 0, 8);
+    glLineWidth(1.5f);
+
+    const float titleVerts[] = {
+        mx0, ty0, 0.f, mx1, ty0, 0.f, mx1, my1, 0.f,  //
+        mx0, ty0, 0.f, mx1, my1, 0.f, mx0, my1, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(titleVerts), titleVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.18f, 0.34f, 0.56f);
+    flatShader_.setFloat("uAlpha", kPanelTitleBarAlpha);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    const char* titleStr = "Parking - ustawienia";
+    const float titleW =
+        static_cast<float>(stb_easy_font_width(const_cast<char*>(titleStr))) * kFontScale;
+    const float titleX = mx0 + (cw - titleW) * 0.5f;
+    const float titlePrintY = (fh - my1) + (titleH - 12.0f * kFontScale) * 0.5f;
+    hudTriTitle.clear();
+    appendEasyFontTriangles(fh, titleX, titlePrintY, kFontScale, titleStr, hudTriTitle);
+    flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriTitle, 0.96f, 0.98f, 1.0f, 0.96f);
+
+    char line1[160];
+    char line2[160];
+    char line3[160];
+    char line4[160];
+    char line5[160];
+    std::snprintf(line1, sizeof(line1), "Miejsca postojowe: %d", gen.spotCount());
+    std::snprintf(line2, sizeof(line2), "Długość parkingu: %.0f m",
+                  static_cast<double>(gen.length()));
+    std::snprintf(line3, sizeof(line3), "Oświetlenie: %s  —  klawisz N przełącza dzień / noc",
+                  lightingMode == LightingMode::Day ? "dzien" : "noc");
+    std::snprintf(line4, sizeof(line4), "Miejsca: [ ] zmiana | ESC — zamknij panel");
+    const int smin = ParkingGenerator::kMinSpots;
+    const int smax = ParkingGenerator::kMaxSpots;
+    std::snprintf(line5, sizeof(line5), "min %d  <--- wiecej w prawo --->  max %d", smin, smax);
+
+    constexpr float padBody = 28.0f;
+    const float textLeft = mx0 + padBody;
+    float lineY = fh - ty0 + 16.0f;
+    hudTriBody.clear();
+    appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line1, hudTriBody);
+    lineY += 23.0f * kFontScale;
+    appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line2, hudTriBody);
+    lineY += 23.0f * kFontScale;
+    appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line3, hudTriBody);
+    lineY += 23.0f * kFontScale;
+    appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line4, hudTriBody);
+    flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriBody, 0.76f, 0.82f, 0.92f, 0.94f);
+
+    constexpr float padX = 52.0f;
+    constexpr float barH = 30.0f;
+    const float bx0 = mx0 + padX;
+    const float bx1 = mx1 - padX;
+    const float by0 = my0 + 54.0f;
+    const float by1 = by0 + barH;
+
+    const float labelPrintY = fh - by1 - 22.0f;
+    hudTriSmall.clear();
+    appendEasyFontTriangles(fh, textLeft, labelPrintY, kFontScaleSmall, line5, hudTriSmall);
+    flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriSmall, 0.52f, 0.60f, 0.74f, 0.88f);
+
+    const float trackVerts[] = {
+        bx0, by0, 0.f, bx1, by0, 0.f, bx1, by1, 0.f,  //
+        bx0, by0, 0.f, bx1, by1, 0.f, bx0, by1, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(trackVerts), trackVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.20f, 0.22f, 0.27f);
+    flatShader_.setFloat("uAmbient", 1.0f);
+    flatShader_.setFloat("uAlpha", 0.86f);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    float t = (static_cast<float>(gen.spotCount() - smin)) / static_cast<float>(smax - smin);
+    t = std::clamp(t, 0.0f, 1.0f);
+    const float span = bx1 - bx0;
+    const float fillW = std::max(4.0f, span * t);
+    const float fillVerts[] = {
+        bx0, by0, 0.f, bx0 + fillW, by0, 0.f, bx0 + fillW, by1, 0.f,  //
+        bx0, by0, 0.f, bx0 + fillW, by1, 0.f, bx0, by1, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(fillVerts), fillVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.28f, 0.82f, 0.52f);
+    flatShader_.setFloat("uAlpha", 0.92f);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    const float lw = 15.0f;
+    const float lh = 24.0f;
+    const float lxL = bx0 - 38.0f;
+    const float lxR = bx1 + 24.0f;
+    const float cyb = (by0 + by1) * 0.5f;
+    const float bracketVerts[] = {
+        lxL, cyb - lh * 0.5f, 0.f, lxL, cyb + lh * 0.5f, 0.f,  //
+        lxL, cyb + lh * 0.5f, 0.f, lxL + lw * 0.4f, cyb + lh * 0.5f, 0.f,
+        lxL, cyb - lh * 0.5f, 0.f, lxL + lw * 0.4f, cyb - lh * 0.5f, 0.f,
+        lxR + lw, cyb - lh * 0.5f, 0.f, lxR + lw, cyb + lh * 0.5f, 0.f,
+        lxR + lw - lw * 0.4f, cyb + lh * 0.5f, 0.f, lxR + lw, cyb + lh * 0.5f, 0.f,
+        lxR + lw - lw * 0.4f, cyb - lh * 0.5f, 0.f, lxR + lw, cyb - lh * 0.5f, 0.f,
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(bracketVerts), bracketVerts, GL_DYNAMIC_DRAW);
+    flatShader_.setVec3("uColor", 0.88f, 0.91f, 0.96f);
+    flatShader_.setFloat("uAlpha", 0.9f);
+    glLineWidth(2.25f);
+    glDrawArrays(GL_LINES, 0, 12);
+    glLineWidth(1.5f);
+  }
+
+  drawHudCornerOverlay(ortho, parkingSettingsOpen);
+
+  glBindVertexArray(0);
+
+  if (depthWas) {
+    glEnable(GL_DEPTH_TEST);
+  }
+  glDisable(GL_BLEND);
+}
+
+void Renderer::drawHudCornerOverlay(const glm::mat4& ortho, bool parkingSettingsOpen) {
+  using parking::ui::kCornerMarginPx;
+  using parking::ui::kCornerPanelPx;
+
+  const float x0 = kCornerMarginPx;
+  const float x1 = kCornerMarginPx + kCornerPanelPx;
+  const float y0 = static_cast<float>(fbHeight_) - kCornerMarginPx - kCornerPanelPx;
+  const float y1 = static_cast<float>(fbHeight_) - kCornerMarginPx;
+
+  const float fillR = parkingSettingsOpen ? 0.22f : 0.14f;
+  const float fillG = parkingSettingsOpen ? 0.32f : 0.16f;
+  const float fillB = parkingSettingsOpen ? 0.26f : 0.22f;
+
+  const float vertsFill[] = {
+      x0, y0, 0.0f, x1, y0, 0.0f, x1, y1, 0.0f,  //
+      x0, y0, 0.0f, x1, y1, 0.0f, x0, y1, 0.0f,
+  };
+
+  glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertsFill), vertsFill, GL_DYNAMIC_DRAW);
+
+  flatShader_.use();
+  flatShader_.setMat4("uMVP", glm::value_ptr(ortho));
+  flatShader_.setVec3("uColor", fillR, fillG, fillB);
+  flatShader_.setFloat("uAmbient", 1.0f);
+  flatShader_.setFloat("uAlpha", 1.0f);
+
+  glBindVertexArray(lineVao_);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+
+  const float borderR = parkingSettingsOpen ? 0.55f : 0.72f;
+  const float borderG = parkingSettingsOpen ? 0.82f : 0.76f;
+  const float borderB = parkingSettingsOpen ? 0.62f : 0.95f;
+
+  const float vertsBorder[] = {
+      x0, y0, 0.0f, x1, y0, 0.0f,  //
+      x1, y0, 0.0f, x1, y1, 0.0f,  //
+      x1, y1, 0.0f, x0, y1, 0.0f,  //
+      x0, y1, 0.0f, x0, y0, 0.0f,
+  };
+
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertsBorder), vertsBorder, GL_DYNAMIC_DRAW);
+  flatShader_.setVec3("uColor", borderR, borderG, borderB);
+  flatShader_.setFloat("uAlpha", 1.0f);
+  glLineWidth(2.0f);
+  glDrawArrays(GL_LINES, 0, 8);
+  glLineWidth(1.5f);
+
+  const float cx = (x0 + x1) * 0.5f;
+  const float cy = (y0 + y1) * 0.5f;
+  const float hw = 14.0f;
+  const float vGap = 7.0f;
+  const float vertsIcon[] = {
+      cx - hw, cy + vGap, 0.0f, cx + hw, cy + vGap, 0.0f,  //
+      cx - hw, cy,       0.0f, cx + hw, cy,       0.0f,  //
+      cx - hw, cy - vGap, 0.0f, cx + hw, cy - vGap, 0.0f,
+  };
+
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertsIcon), vertsIcon, GL_DYNAMIC_DRAW);
+  flatShader_.setVec3("uColor", 0.92f, 0.93f, 0.96f);
+  flatShader_.setFloat("uAlpha", 1.0f);
+  glDrawArrays(GL_LINES, 0, 6);
+}
+
+void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen) {
   if (fbWidth_ <= 0 || fbHeight_ <= 0) {
     return;
   }
@@ -411,6 +714,27 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
   const float amb = scene.lighting().ambientFactor();
   const glm::vec3 lightDir = glm::normalize(scene.lighting().sunDirection());
   const glm::vec3 camPos = camera.eye();
+
+  constexpr glm::vec3 kLampBulbLocal(0.1f, 2.42f, 0.36f);
+  constexpr int kMaxPointLights = 48;
+  std::vector<glm::vec3> lampPointPos;
+  lampPointPos.reserve(std::min(scene.props().size(), static_cast<size_t>(kMaxPointLights)));
+  for (const PlacedProp& pl : scene.props()) {
+    if (pl.kind != PropKind::Lamp) {
+      continue;
+    }
+    if (static_cast<int>(lampPointPos.size()) >= kMaxPointLights) {
+      break;
+    }
+    glm::mat4 lm = glm::translate(glm::mat4(1.0f), pl.position);
+    lm = glm::rotate(lm, pl.rotY, glm::vec3(0.0f, 1.0f, 0.0f));
+    lm = glm::scale(lm, glm::vec3(pl.scale));
+    lampPointPos.push_back(glm::vec3(lm * glm::vec4(kLampBulbLocal, 1.0f)));
+  }
+  constexpr float kLampPointIntensityScale = 0.1f;
+  const float pointIntensity =
+      (scene.lighting().mode() == LightingMode::Night ? 10.5f : 3.2f) * kLampPointIntensityScale;
+  constexpr float kPointRadius = 26.0f;
 
   const float orthoExtent = std::max(grassL, grassW) * 0.5f + 22.0f;
   glm::vec3 center(0.0f);
@@ -460,6 +784,13 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
     groundShader_.setFloat("uHalfParkingW", W * 0.5f);
     groundShader_.setFloat("uHalfRoadW", roadW * 0.5f);
     groundShader_.setFloat("uHalfGrassL", grassL * 0.5f);
+    groundShader_.setInt("uNumPointLights", static_cast<int>(lampPointPos.size()));
+    if (!lampPointPos.empty()) {
+      groundShader_.setVec3v("uPointPos", lampPointPos.data(), static_cast<int>(lampPointPos.size()));
+    }
+    groundShader_.setVec3("uPointColor", 1.0f, 0.93f, 0.72f);
+    groundShader_.setFloat("uPointIntensity", pointIntensity);
+    groundShader_.setFloat("uPointRadius", kPointRadius);
 
     glActiveTexture(GL_TEXTURE0 + kGrassTexUnit);
     glBindTexture(GL_TEXTURE_2D, grassAlbedoTex_);
@@ -497,6 +828,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
     flatShader_.setMat4("uMVP", glm::value_ptr(vp));
     flatShader_.setVec3("uColor", 0.92f, 0.92f, 0.85f);
     flatShader_.setFloat("uAmbient", std::max(amb, 0.55f));
+    flatShader_.setFloat("uAlpha", 1.0f);
 
     glBindVertexArray(lineVao_);
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(lineVerts.size() / 3));
@@ -513,6 +845,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
     flatShader_.setMat4("uMVP", glm::value_ptr(vp));
     flatShader_.setVec3("uColor", 0.92f, 0.82f, 0.18f);
     flatShader_.setFloat("uAmbient", std::max(amb, 0.58f));
+    flatShader_.setFloat("uAlpha", 1.0f);
 
     glBindVertexArray(lineVao_);
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(centerLineVerts.size() / 3));
@@ -525,6 +858,16 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
 
   glActiveTexture(GL_TEXTURE0 + kModelDiffuseUnit);
   glBindTexture(GL_TEXTURE_2D, whiteTex_);
+
+  modelShader_.use();
+  modelShader_.setInt("uNumPointLights", static_cast<int>(lampPointPos.size()));
+  if (!lampPointPos.empty()) {
+    modelShader_.setVec3v("uPointPos", lampPointPos.data(), static_cast<int>(lampPointPos.size()));
+  }
+  modelShader_.setVec3("uPointColor", 1.0f, 0.93f, 0.72f);
+  modelShader_.setFloat("uPointIntensity", pointIntensity);
+  modelShader_.setFloat("uPointRadius", kPointRadius);
+
   for (const PlacedProp& p : scene.props()) {
     const int k = static_cast<int>(p.kind);
     if (k < 0 || k >= static_cast<int>(propModels_.size()) || !propModels_[static_cast<size_t>(k)].ready()) {
@@ -545,6 +888,8 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec) {
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, 0);
+
+  drawOverlayUi(parkingSettingsOpen, gen, scene.lighting().mode());
 }
 
 }  // namespace parking
