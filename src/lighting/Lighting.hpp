@@ -17,6 +17,10 @@ public:
   [[nodiscard]] glm::vec3 clearColor() const;
   [[nodiscard]] float ambientFactor() const;
   [[nodiscard]] glm::vec3 sunDirection() const;
+  /// Noc: 0 (tylko lampy); dzień: 1 — mnożnik światła kierunkowego + specular.
+  [[nodiscard]] float directionalLightWeight() const;
+  /// Prawie białe słońce, lekko ciepłe — nie psuje albedo tekstur.
+  [[nodiscard]] glm::vec3 sunColor() const;
 
 private:
   LightingMode mode_{LightingMode::Night};

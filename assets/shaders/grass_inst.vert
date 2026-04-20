@@ -9,11 +9,12 @@ uniform float uTime;
 uniform float uWindFreq;
 uniform float uWindAmp;
 
-const float kBladeH = 1.25;
+const float kBladeH = 1.10;
 
 out vec3 vNormal;
 out vec4 vFragPosLightSpace;
 out float vTip;
+out vec3 vWorldPos;
 
 void main() {
   vec3 base = vec3(aPos.x * aInst.w, aPos.y * aInst.w, aPos.z * aInst.w);
@@ -37,6 +38,7 @@ void main() {
   vNormal = normalize(nloc);
 
   vTip = clamp(h, 0.0, 1.0);
+  vWorldPos = world;
   gl_Position = uViewProj * vec4(world, 1.0);
   vFragPosLightSpace = uLightViewProj * vec4(world, 1.0);
 }

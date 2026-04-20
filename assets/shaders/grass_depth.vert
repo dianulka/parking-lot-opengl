@@ -8,7 +8,7 @@ uniform float uTime;
 uniform float uWindFreq;
 uniform float uWindAmp;
 
-const float kBladeH = 30.0;
+const float kBladeH = 1.10;
 
 void main() {
   vec3 base = vec3(aPos.x * aInst.w, aPos.y * aInst.w, aPos.z * aInst.w);

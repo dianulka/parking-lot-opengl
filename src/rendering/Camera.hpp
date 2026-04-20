@@ -32,9 +32,9 @@ private:
   glm::vec3 target_{0.0f, 0.0f, 0.0f};
   glm::vec3 up_{0.0f, 1.0f, 0.0f};
 
-  float distance_{45.0f};
-  float yawDeg_{45.0f};
-  float pitchDeg_{72.0f};
+  float distance_{52.0f};
+  float yawDeg_{39.0f};
+  float pitchDeg_{61.5f};
   float fovDegrees_{52.0f};
 
   float minX_{-60.0f};

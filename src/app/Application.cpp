@@ -45,7 +45,11 @@ Application::Application(ParkingScene&& scene)
   const float W = ParkingGenerator::fixedWidth();
   const float mg = ParkingGenerator::grassMarginMeters();
   const float span = std::max(L, W) + 2.0f * mg;
-  camera_.setOrbit(std::max(36.0f, span * 0.38f), 48.0f, 72.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+  // Domyślny widok: z góry z lekką perspektywą, ukośnie na pas jezdni / miejsca (jak pierwszy podgląd).
+  const float startDist = std::max(52.0f, span * 0.46f);
+  constexpr float kStartYawDeg = 39.0f;
+  constexpr float kStartPitchDeg = 61.5f;
+  camera_.setOrbit(startDist, kStartYawDeg, kStartPitchDeg, glm::vec3(0.0f, 0.0f, 0.0f));
   camera_.setBoundsFromLot(scene_.generator().halfLength(), scene_.generator().halfWidth(), mg);
 
   int w = 0;

@@ -12,7 +12,7 @@ ParkingScene::ParkingScene(ParkingGenerator generator) : generator_(std::move(ge
 uint64_t ParkingScene::layoutHash() const {
   const uint32_t lenBits = static_cast<uint32_t>(generator_.length() * 1000.0f);
   const uint32_t spots = static_cast<uint32_t>(generator_.spotCount());
-  constexpr uint32_t kPlacementVer = 15u;
+  constexpr uint32_t kPlacementVer = 16u;
   return (static_cast<uint64_t>(lenBits) << 32) | static_cast<uint64_t>(spots ^ (kPlacementVer * 0x9E3779B1u));
 }
 
@@ -105,7 +105,7 @@ void ParkingScene::rebuildPlacements() {
     props_.push_back({PropKind::Car, {s.x, kCarY, s.z}, s.yaw, kCarScale});
   }
 
-  constexpr float kLampScale = 0.88f;
+  constexpr float kLampScale = 0.93f;
   constexpr float kRoadEndX = 0.94f;
   constexpr float kPi = 3.14159265f;
   constexpr int kLampEveryNSpots = 5;
@@ -121,6 +121,20 @@ void ParkingScene::rebuildPlacements() {
 
   props_.push_back({PropKind::Lamp, {-gHalfL * kRoadEndX, 0.0f, 0.0f}, 0.0f, kLampScale});
   props_.push_back({PropKind::Lamp, {gHalfL * kRoadEndX, 0.0f, 0.0f}, 3.14159265f, kLampScale});
+
+  /// Lampy na środku pasa drogi poza prostokątem parkingu (co 100 m).
+  constexpr float kRoadLampAlongStepM = 100.0f;
+  constexpr float kRoadLampEdgeMargin = 12.0f;
+  const float roadXMin = -gHalfL + kRoadLampEdgeMargin;
+  const float roadXMax = gHalfL - kRoadLampEdgeMargin;
+  const float parkEdgeLeft = -halfL - 4.0f;
+  const float parkEdgeRight = halfL + 4.0f;
+  for (float x = roadXMin; x < parkEdgeLeft; x += kRoadLampAlongStepM) {
+    props_.push_back({PropKind::Lamp, {x, 0.0f, 0.0f}, 0.0f, kLampScale});
+  }
+  for (float x = parkEdgeRight; x < roadXMax; x += kRoadLampAlongStepM) {
+    props_.push_back({PropKind::Lamp, {x, 0.0f, 0.0f}, 3.14159265f, kLampScale});
+  }
 
   const int nAlong = std::max(nLeft, nRight);
   if (nAlong >= kLampEveryNSpots) {

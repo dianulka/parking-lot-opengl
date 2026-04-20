@@ -3,7 +3,7 @@ in vec4 vFragPosLightSpace;
 in vec2 vGroundUv;
 in vec3 vWorldPos;
 
-#define MAX_POINT_LIGHTS 48
+#define MAX_POINT_LIGHTS 96
 
 uniform vec3 uGrassTint;
 uniform vec3 uRoadStripTint;
@@ -27,6 +27,14 @@ uniform vec3 uPointPos[MAX_POINT_LIGHTS];
 uniform vec3 uPointColor;
 uniform float uPointIntensity;
 uniform float uPointRadius;
+
+uniform float uDirectionalWeight;
+uniform vec3 uSunColor;
+uniform float uSunDiskWeight;
+uniform vec3 uSunDiskWorldPos;
+uniform float uSunDiskIntensity;
+uniform float uSunDiskRadius;
+uniform vec3 uSunDiskColor;
 
 out vec4 FragColor;
 
@@ -54,7 +62,7 @@ void main() {
   vec3 L = normalize(uLightDir);
   float nd = max(dot(n, L), 0.0);
   float sh = shadowFactor(vFragPosLightSpace);
-  float lit = uAmbient + (1.0 - uAmbient) * nd * sh;
+  float litDir = uAmbient + (1.0 - uAmbient) * nd * sh;
 
   float x = vWorldPos.x;
   float z = vWorldPos.z;
@@ -75,7 +83,7 @@ void main() {
   }
 
   vec3 pointDiff = vec3(0.0);
-  float r2 = max(uPointRadius * uPointRadius, 9.0);
+  float r2 = max(uPointRadius * uPointRadius, 4.0);
   for (int i = 0; i < MAX_POINT_LIGHTS; ++i) {
     if (i >= uNumPointLights) {
       break;
@@ -83,12 +91,25 @@ void main() {
     vec3 toL = uPointPos[i] - vWorldPos;
     float dist = length(toL);
     vec3 Lp = toL / max(dist, 1e-4);
-    float att = uPointIntensity / (1.0 + 0.028 * dist + (dist * dist) / r2);
+    float att = uPointIntensity / (1.0 + 0.065 * dist + 0.72 * (dist * dist) / r2);
+    float rim = 1.0 - smoothstep(uPointRadius * 0.48, uPointRadius * 1.28, dist);
+    att *= rim;
     float ndp = max(dot(n, Lp), 0.0);
-    float spill = att * 0.055;
-    pointDiff += uPointColor * (ndp * att * 1.55 + spill);
+    float spill = att * 0.048;
+    pointDiff += uPointColor * (ndp * att * 1.92 + spill);
   }
 
-  vec3 outRgb = base * lit + base * pointDiff;
+  vec3 sunDisk = vec3(0.0);
+  if (uSunDiskWeight > 0.001) {
+    vec3 toD = uSunDiskWorldPos - vWorldPos;
+    float dD = length(toD);
+    vec3 Ld = toD / max(dD, 1e-3);
+    float ndd = max(dot(n, Ld), 0.0);
+    float rD2 = max(uSunDiskRadius * uSunDiskRadius, 60000.0);
+    float attD = uSunDiskIntensity / (1.0 + 2.2e-5 * dD + (dD * dD) / rD2);
+    sunDisk = base * uSunDiskColor * ndd * attD * uSunDiskWeight * 0.11;
+  }
+
+  vec3 outRgb = base * litDir * uSunColor * uDirectionalWeight + sunDisk + base * pointDiff;
   FragColor = vec4(outRgb, 1.0);
 }

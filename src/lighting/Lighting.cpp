@@ -4,16 +4,24 @@ namespace parking {
 
 glm::vec3 Lighting::clearColor() const {
   if (mode_ == LightingMode::Night) {
-    return glm::vec3(0.016f, 0.02f, 0.036f);
+    return glm::vec3(0.0f, 0.0f, 0.0f);
   }
   return glm::vec3(0.55f, 0.68f, 0.88f);
 }
 
 float Lighting::ambientFactor() const {
   if (mode_ == LightingMode::Night) {
-    return 0.072f;
+    return 0.0f;
   }
   return 0.42f;
+}
+
+float Lighting::directionalLightWeight() const {
+  return mode_ == LightingMode::Day ? 1.0f : 0.0f;
+}
+
+glm::vec3 Lighting::sunColor() const {
+  return glm::vec3(1.0f, 0.993f, 0.978f);
 }
 
 glm::vec3 Lighting::sunDirection() const {

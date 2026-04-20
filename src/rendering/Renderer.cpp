@@ -716,7 +716,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   const glm::vec3 camPos = camera.eye();
 
   constexpr glm::vec3 kLampBulbLocal(0.1f, 2.42f, 0.36f);
-  constexpr int kMaxPointLights = 48;
+  constexpr int kMaxPointLights = 96;
   std::vector<glm::vec3> lampPointPos;
   lampPointPos.reserve(std::min(scene.props().size(), static_cast<size_t>(kMaxPointLights)));
   for (const PlacedProp& pl : scene.props()) {
@@ -731,10 +731,30 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     lm = glm::scale(lm, glm::vec3(pl.scale));
     lampPointPos.push_back(glm::vec3(lm * glm::vec4(kLampBulbLocal, 1.0f)));
   }
-  constexpr float kLampPointIntensityScale = 0.1f;
+  // Lampy punktowe: „moc” vs „zasięg”
+  // - Zasięg / jak daleko świeci bez przepaleń kolorów: kPointRadius + w model.frag / ground.frag / grass_inst.frag
+  //   wzór att (0.065, 0.72) oraz smoothstep rim (0.48 / 1.28 * uPointRadius).
+  // - Jaśniejsze kolory / silniejsze światło przy lampie: kLampPointIntensityScale (+ nocna baza 10.5f wyżej).
+  // - Trawa (grass_inst.frag): kGrassNightPointScale — zmniejsza odbicie lamp od źdźbeł w nocy (nie zmienia ziemi).
+  // - Dzień: lampy nie świecą (uNumPointLights = 0); modele lamp nadal widoczne.
+  constexpr float kLampPointIntensityScale = 0.13f;
+  constexpr float kNightLampExtraScale = 1.0f;
   const float pointIntensity =
-      (scene.lighting().mode() == LightingMode::Night ? 10.5f : 3.2f) * kLampPointIntensityScale;
-  constexpr float kPointRadius = 26.0f;
+      (scene.lighting().mode() == LightingMode::Night ? 10.5f : 3.2f) * kLampPointIntensityScale *
+      (scene.lighting().mode() == LightingMode::Night ? kNightLampExtraScale : 1.0f);
+  const int lampPointLightCount =
+      scene.lighting().mode() == LightingMode::Night ? static_cast<int>(lampPointPos.size()) : 0;
+  constexpr float kPointRadius = 118.0f;
+  constexpr float kGrassNightPointScale = 0.36f;
+  const float grassPointLightScale =
+      scene.lighting().mode() == LightingMode::Night ? kGrassNightPointScale : 1.0f;
+
+  const glm::vec3 sunColor = scene.lighting().sunColor();
+  const float directionalWeight = scene.lighting().directionalLightWeight();
+  const glm::vec3 sunDiskWorldPos = lightDir * 680.0f;
+  constexpr float kSunDiskIntensity = 1.08f;
+  constexpr float kSunDiskRadius = 172.0f;
+  const float sunDiskWeight = scene.lighting().mode() == LightingMode::Day ? 1.0f : 0.0f;
 
   const float orthoExtent = std::max(grassL, grassW) * 0.5f + 22.0f;
   glm::vec3 center(0.0f);
@@ -784,13 +804,20 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     groundShader_.setFloat("uHalfParkingW", W * 0.5f);
     groundShader_.setFloat("uHalfRoadW", roadW * 0.5f);
     groundShader_.setFloat("uHalfGrassL", grassL * 0.5f);
-    groundShader_.setInt("uNumPointLights", static_cast<int>(lampPointPos.size()));
-    if (!lampPointPos.empty()) {
-      groundShader_.setVec3v("uPointPos", lampPointPos.data(), static_cast<int>(lampPointPos.size()));
+    groundShader_.setInt("uNumPointLights", lampPointLightCount);
+    if (lampPointLightCount > 0) {
+      groundShader_.setVec3v("uPointPos", lampPointPos.data(), lampPointLightCount);
     }
     groundShader_.setVec3("uPointColor", 1.0f, 0.93f, 0.72f);
     groundShader_.setFloat("uPointIntensity", pointIntensity);
     groundShader_.setFloat("uPointRadius", kPointRadius);
+    groundShader_.setFloat("uDirectionalWeight", directionalWeight);
+    groundShader_.setVec3("uSunColor", sunColor.x, sunColor.y, sunColor.z);
+    groundShader_.setFloat("uSunDiskWeight", sunDiskWeight);
+    groundShader_.setVec3("uSunDiskWorldPos", sunDiskWorldPos.x, sunDiskWorldPos.y, sunDiskWorldPos.z);
+    groundShader_.setFloat("uSunDiskIntensity", kSunDiskIntensity);
+    groundShader_.setFloat("uSunDiskRadius", kSunDiskRadius);
+    groundShader_.setVec3("uSunDiskColor", sunColor.x, sunColor.y, sunColor.z);
 
     glActiveTexture(GL_TEXTURE0 + kGrassTexUnit);
     glBindTexture(GL_TEXTURE_2D, grassAlbedoTex_);
@@ -807,7 +834,11 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   if (grassBlades_.ready()) {
     glActiveTexture(GL_TEXTURE0 + kShadowUnit);
     glBindTexture(GL_TEXTURE_2D, shadowTex_);
-    grassBlades_.draw(vp, lightVP, grassShader_, lightDir, amb, kShadowUnit, timeSec);
+    grassBlades_.draw(vp, lightVP, grassShader_, lightDir, amb, kShadowUnit, timeSec, directionalWeight, sunColor,
+                      sunDiskWorldPos, sunDiskWeight, kSunDiskIntensity, kSunDiskRadius, sunColor,
+                      lampPointLightCount,
+                      lampPointLightCount > 0 ? lampPointPos.data() : nullptr, pointIntensity, kPointRadius,
+                      glm::vec3(1.0f, 0.93f, 0.72f), grassPointLightScale);
   }
 
   static std::vector<float> lineVerts;
@@ -827,7 +858,9 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     flatShader_.use();
     flatShader_.setMat4("uMVP", glm::value_ptr(vp));
     flatShader_.setVec3("uColor", 0.92f, 0.92f, 0.85f);
-    flatShader_.setFloat("uAmbient", std::max(amb, 0.55f));
+    flatShader_.setFloat(
+        "uAmbient",
+        scene.lighting().mode() == LightingMode::Night ? 0.08f : std::max(amb, 0.55f));
     flatShader_.setFloat("uAlpha", 1.0f);
 
     glBindVertexArray(lineVao_);
@@ -844,7 +877,9 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     flatShader_.use();
     flatShader_.setMat4("uMVP", glm::value_ptr(vp));
     flatShader_.setVec3("uColor", 0.92f, 0.82f, 0.18f);
-    flatShader_.setFloat("uAmbient", std::max(amb, 0.58f));
+    flatShader_.setFloat(
+        "uAmbient",
+        scene.lighting().mode() == LightingMode::Night ? 0.09f : std::max(amb, 0.58f));
     flatShader_.setFloat("uAlpha", 1.0f);
 
     glBindVertexArray(lineVao_);
@@ -860,13 +895,20 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   glBindTexture(GL_TEXTURE_2D, whiteTex_);
 
   modelShader_.use();
-  modelShader_.setInt("uNumPointLights", static_cast<int>(lampPointPos.size()));
-  if (!lampPointPos.empty()) {
-    modelShader_.setVec3v("uPointPos", lampPointPos.data(), static_cast<int>(lampPointPos.size()));
+  modelShader_.setInt("uNumPointLights", lampPointLightCount);
+  if (lampPointLightCount > 0) {
+    modelShader_.setVec3v("uPointPos", lampPointPos.data(), lampPointLightCount);
   }
   modelShader_.setVec3("uPointColor", 1.0f, 0.93f, 0.72f);
   modelShader_.setFloat("uPointIntensity", pointIntensity);
   modelShader_.setFloat("uPointRadius", kPointRadius);
+  modelShader_.setFloat("uDirectionalWeight", directionalWeight);
+  modelShader_.setVec3("uSunColor", sunColor.x, sunColor.y, sunColor.z);
+  modelShader_.setFloat("uSunDiskWeight", sunDiskWeight);
+  modelShader_.setVec3("uSunDiskWorldPos", sunDiskWorldPos.x, sunDiskWorldPos.y, sunDiskWorldPos.z);
+  modelShader_.setFloat("uSunDiskIntensity", kSunDiskIntensity);
+  modelShader_.setFloat("uSunDiskRadius", kSunDiskRadius);
+  modelShader_.setVec3("uSunDiskColor", sunColor.x, sunColor.y, sunColor.z);
 
   for (const PlacedProp& p : scene.props()) {
     const int k = static_cast<int>(p.kind);

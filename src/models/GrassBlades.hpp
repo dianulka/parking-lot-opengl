@@ -25,7 +25,11 @@ public:
   [[nodiscard]] bool ready() const { return vao_ != 0 && indexCount_ > 0 && instanceCount_ > 0; }
 
   void draw(const glm::mat4& viewProj, const glm::mat4& lightViewProj, Shader& shader, const glm::vec3& lightDir,
-            float ambient, int shadowMapTextureUnit, float timeSec) const;
+            float ambient, int shadowMapTextureUnit, float timeSec, float directionalWeight,
+            const glm::vec3& sunColor, const glm::vec3& sunDiskWorldPos, float sunDiskWeight,
+            float sunDiskIntensity, float sunDiskRadius, const glm::vec3& sunDiskColor, int numPointLights,
+            const glm::vec3* pointLights, float pointIntensity, float pointRadius,
+            const glm::vec3& pointColor, float grassPointLightScale) const;
 
   void drawShadow(const glm::mat4& lightViewProj, Shader& depthShader, float timeSec) const;
 

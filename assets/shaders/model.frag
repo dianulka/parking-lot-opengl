@@ -4,7 +4,7 @@ in vec3 vWorldPos;
 in vec4 vFragPosLightSpace;
 in vec2 vTex;
 
-#define MAX_POINT_LIGHTS 48
+#define MAX_POINT_LIGHTS 96
 
 uniform vec3 uBaseColor;
 uniform vec3 uLightDir;
@@ -20,6 +20,14 @@ uniform vec3 uPointPos[MAX_POINT_LIGHTS];
 uniform vec3 uPointColor;
 uniform float uPointIntensity;
 uniform float uPointRadius;
+
+uniform float uDirectionalWeight;
+uniform vec3 uSunColor;
+uniform float uSunDiskWeight;
+uniform vec3 uSunDiskWorldPos;
+uniform float uSunDiskIntensity;
+uniform float uSunDiskRadius;
+uniform vec3 uSunDiskColor;
 
 out vec4 FragColor;
 
@@ -56,10 +64,22 @@ void main() {
   float dirLight = uAmbient + (1.0 - uAmbient) * nd * sh;
 
   float specMask = uUseTexture ? 0.55 : 0.35;
-  float spec = pow(max(dot(n, H), 0.0), 40.0) * uSpecularStrength * specMask;
+  float spec =
+      pow(max(dot(n, H), 0.0), 40.0) * uSpecularStrength * specMask * uDirectionalWeight;
+
+  vec3 sunDisk = vec3(0.0);
+  if (uSunDiskWeight > 0.001) {
+    vec3 toD = uSunDiskWorldPos - vWorldPos;
+    float dD = length(toD);
+    vec3 Ld = toD / max(dD, 1e-3);
+    float ndd = max(dot(n, Ld), 0.0);
+    float rD2 = max(uSunDiskRadius * uSunDiskRadius, 60000.0);
+    float attD = uSunDiskIntensity / (1.0 + 2.2e-5 * dD + (dD * dD) / rD2);
+    sunDisk = albedo * uSunDiskColor * ndd * attD * uSunDiskWeight * 0.11;
+  }
 
   vec3 pointDiff = vec3(0.0);
-  float r2 = max(uPointRadius * uPointRadius, 9.0);
+  float r2 = max(uPointRadius * uPointRadius, 4.0);
   for (int i = 0; i < MAX_POINT_LIGHTS; ++i) {
     if (i >= uNumPointLights) {
       break;
@@ -67,12 +87,15 @@ void main() {
     vec3 toL = uPointPos[i] - vWorldPos;
     float dist = length(toL);
     vec3 Lp = toL / max(dist, 1e-4);
-    float att = uPointIntensity / (1.0 + 0.028 * dist + (dist * dist) / r2);
+    float att = uPointIntensity / (1.0 + 0.065 * dist + 0.72 * (dist * dist) / r2);
+    float rim = 1.0 - smoothstep(uPointRadius * 0.48, uPointRadius * 1.28, dist);
+    att *= rim;
     float ndp = max(dot(n, Lp), 0.0);
-    float spill = att * 0.055;
-    pointDiff += uPointColor * (ndp * att * 1.55 + spill);
+    float spill = att * 0.048;
+    pointDiff += uPointColor * (ndp * att * 1.92 + spill);
   }
 
-  vec3 lit = albedo * dirLight + vec3(spec) + albedo * pointDiff;
+  vec3 dirContrib = albedo * dirLight * uSunColor * uDirectionalWeight;
+  vec3 lit = dirContrib + vec3(spec) + sunDisk + albedo * pointDiff;
   FragColor = vec4(lit, 1.0);
 }

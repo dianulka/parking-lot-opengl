@@ -4,8 +4,10 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <random>
+#include <utility>
 #include <vector>
 
 namespace parking {
@@ -25,7 +27,7 @@ bool isGrassZone(float x, float z, float halfL, float halfW, float halfGrassL, f
 unsigned packCacheKey(const ParkingGenerator& gen) {
   const unsigned a = static_cast<unsigned>(gen.length() * 1000.0f);
   const unsigned b = static_cast<unsigned>(gen.spotCount()) * 2654435761u;
-  constexpr unsigned kPlacementVer = 5u;
+  constexpr unsigned kPlacementVer = 8u;
   return a ^ b ^ (kPlacementVer * 1315423911u);
 }
 
@@ -55,7 +57,7 @@ void GrassBlades::create() {
     vao_ = vbo_ = ebo_ = instanceVbo_ = 0;
   }
 
-  constexpr float kClumpHeightM = 1.25f;
+  constexpr float kClumpHeightM = 1.10f;
   constexpr float hw = 0.25f;
   constexpr float h = kClumpHeightM;
 
@@ -130,37 +132,79 @@ void GrassBlades::rebuildIfNeeded(const ParkingGenerator& gen) {
   const float halfRoadW = roadW * 0.5f;
 
   constexpr int kMaxInstances = 240000;
-  static_assert(5 * 8 == 40, "tuft layout");
-  constexpr float kTuftCenterStep = 52.0f / 3.0f;
-  constexpr float kWithinTuftStep = 1.25f / 3.0f;
-  constexpr float kJitterTiny = 0.12f / 3.0f;
+  constexpr float kTwoPi = 6.2831853f;
+  /// Zagęszczenie kotwic kępek (mniejszy krok ⇒ więcej kup nie w jednej linii).
+  constexpr float kTuftAnchorStep = 9.25f;
+  constexpr int kBladesBudgetPerTuftAnchor = 54;
+  constexpr float kClumpBladeRadius = 0.44f;
+  constexpr float kMiniClumpScatter = 2.35f;
+  constexpr unsigned kGrassSeedSalt = 0xC1A55EEDu;
 
   std::vector<glm::vec4> inst;
   inst.reserve(static_cast<size_t>(kMaxInstances));
 
-  std::mt19937 rng(static_cast<unsigned>(cacheKey_ ^ 0x9E3779B9u));
-  std::uniform_real_distribution<float> jitter(-kJitterTiny, kJitterTiny);
-  std::uniform_real_distribution<float> rot01(0.0f, 6.2831853f);
-  std::uniform_real_distribution<float> scaleR(0.92f, 1.08f);
+  std::mt19937 rng(static_cast<unsigned>(cacheKey_ ^ kGrassSeedSalt ^ 0x9E3779B9u));
+  std::uniform_real_distribution<float> rot01(0.0f, kTwoPi);
+  std::uniform_real_distribution<float> scaleR(0.88f, 1.14f);
+  std::uniform_real_distribution<float> uni01(0.0f, 1.0f);
+  std::uniform_int_distribution<int> bladesInClump(3, 18);
+  std::uniform_real_distribution<float> scatterXZ(-kMiniClumpScatter, kMiniClumpScatter);
 
-  for (float cx = -halfGrassL + kTuftCenterStep * 0.5f; cx < halfGrassL && static_cast<int>(inst.size()) < kMaxInstances;
-       cx += kTuftCenterStep) {
-    for (float cz = -halfGrassW + kTuftCenterStep * 0.5f; cz < halfGrassW && static_cast<int>(inst.size()) < kMaxInstances;
-         cz += kTuftCenterStep) {
+  auto emitBladesAround = [&](float baseX, float baseZ, int count) {
+    for (int b = 0; b < count && static_cast<int>(inst.size()) < kMaxInstances; ++b) {
+      const float phi = uni01(rng) * kTwoPi;
+      const float rr = std::sqrt(uni01(rng)) * kClumpBladeRadius;
+      float ox = std::cos(phi) * rr;
+      float oz = std::sin(phi) * rr;
+      float jx = baseX + ox;
+      float jz = baseZ + oz;
+      if (!isGrassZone(jx, jz, halfL, halfW, halfGrassL, halfRoadW)) {
+        jx = baseX;
+        jz = baseZ;
+        if (!isGrassZone(jx, jz, halfL, halfW, halfGrassL, halfRoadW)) {
+          continue;
+        }
+      }
+      inst.emplace_back(jx, jz, rot01(rng), scaleR(rng));
+    }
+  };
+
+  const int ni = std::max(6, static_cast<int>(std::ceil((2.0f * halfGrassL) / kTuftAnchorStep)));
+  const int nj = std::max(6, static_cast<int>(std::ceil((2.0f * halfGrassW) / kTuftAnchorStep)));
+  const float invNi = 1.0f / static_cast<float>(ni);
+  const float invNj = 1.0f / static_cast<float>(nj);
+
+  for (int gi = 0; gi < ni && static_cast<int>(inst.size()) < kMaxInstances; ++gi) {
+    const float u0 = static_cast<float>(gi) * invNi;
+    const float u1 = static_cast<float>(gi + 1) * invNi;
+    for (int gj = 0; gj < nj && static_cast<int>(inst.size()) < kMaxInstances; ++gj) {
+      const float v0 = static_cast<float>(gj) * invNj;
+      const float v1 = static_cast<float>(gj + 1) * invNj;
+      /// Losowy punkt w prostokącie komórki — bez regularnych rzędów jak przy sztywnej siatce.
+      const float cx = glm::mix(-halfGrassL, halfGrassL, glm::mix(u0, u1, uni01(rng)));
+      const float cz = glm::mix(-halfGrassW, halfGrassW, glm::mix(v0, v1, uni01(rng)));
+
       if (!isGrassZone(cx, cz, halfL, halfW, halfGrassL, halfRoadW)) {
         continue;
       }
-      for (int r = 0; r < 5 && static_cast<int>(inst.size()) < kMaxInstances; ++r) {
-        for (int c = 0; c < 8 && static_cast<int>(inst.size()) < kMaxInstances; ++c) {
-          const float ox = (static_cast<float>(c) - 3.5f) * kWithinTuftStep;
-          const float oz = (static_cast<float>(r) - 2.0f) * kWithinTuftStep;
-          const float jx = cx + ox + jitter(rng);
-          const float jz = cz + oz + jitter(rng);
-          if (!isGrassZone(jx, jz, halfL, halfW, halfGrassL, halfRoadW)) {
-            continue;
-          }
-          inst.emplace_back(jx, jz, rot01(rng), scaleR(rng));
+
+      int placedHere = 0;
+      while (placedHere < kBladesBudgetPerTuftAnchor && static_cast<int>(inst.size()) < kMaxInstances) {
+        const int remaining = kBladesBudgetPerTuftAnchor - placedHere;
+        int n = bladesInClump(rng);
+        if (remaining >= 2) {
+          n = std::clamp(n, 2, std::min(18, remaining));
+        } else {
+          n = remaining;
         }
+        float subX = cx + scatterXZ(rng);
+        float subZ = cz + scatterXZ(rng);
+        if (!isGrassZone(subX, subZ, halfL, halfW, halfGrassL, halfRoadW)) {
+          subX = cx;
+          subZ = cz;
+        }
+        emitBladesAround(subX, subZ, n);
+        placedHere += n;
       }
     }
   }
@@ -182,7 +226,12 @@ constexpr float kWindAmpM = 0.25f;
 }  // namespace
 
 void GrassBlades::draw(const glm::mat4& viewProj, const glm::mat4& lightViewProj, Shader& shader,
-                       const glm::vec3& lightDir, float ambient, int shadowMapTextureUnit, float timeSec) const {
+                       const glm::vec3& lightDir, float ambient, int shadowMapTextureUnit, float timeSec,
+                       float directionalWeight, const glm::vec3& sunColor, const glm::vec3& sunDiskWorldPos,
+                       float sunDiskWeight, float sunDiskIntensity, float sunDiskRadius,
+                       const glm::vec3& sunDiskColor, int numPointLights, const glm::vec3* pointLights,
+                       float pointIntensity, float pointRadius, const glm::vec3& pointColor,
+                       float grassPointLightScale) const {
   if (!ready()) {
     return;
   }
@@ -191,6 +240,21 @@ void GrassBlades::draw(const glm::mat4& viewProj, const glm::mat4& lightViewProj
   shader.setMat4("uLightViewProj", glm::value_ptr(lightViewProj));
   shader.setVec3("uLightDir", lightDir.x, lightDir.y, lightDir.z);
   shader.setFloat("uAmbient", ambient);
+  shader.setFloat("uDirectionalWeight", directionalWeight);
+  shader.setVec3("uSunColor", sunColor.x, sunColor.y, sunColor.z);
+  shader.setFloat("uSunDiskWeight", sunDiskWeight);
+  shader.setVec3("uSunDiskWorldPos", sunDiskWorldPos.x, sunDiskWorldPos.y, sunDiskWorldPos.z);
+  shader.setFloat("uSunDiskIntensity", sunDiskIntensity);
+  shader.setFloat("uSunDiskRadius", sunDiskRadius);
+  shader.setVec3("uSunDiskColor", sunDiskColor.x, sunDiskColor.y, sunDiskColor.z);
+  shader.setInt("uNumPointLights", numPointLights);
+  if (pointLights != nullptr && numPointLights > 0) {
+    shader.setVec3v("uPointPos", pointLights, numPointLights);
+  }
+  shader.setVec3("uPointColor", pointColor.x, pointColor.y, pointColor.z);
+  shader.setFloat("uPointIntensity", pointIntensity);
+  shader.setFloat("uPointRadius", pointRadius);
+  shader.setFloat("uGrassPointLightScale", grassPointLightScale);
   shader.setInt("uShadowMap", shadowMapTextureUnit);
   shader.setFloat("uTime", timeSec);
   shader.setFloat("uWindFreq", kWindFreq);
