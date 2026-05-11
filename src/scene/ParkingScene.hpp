@@ -18,6 +18,8 @@ struct PlacedProp {
   glm::vec3 position{};
   float rotY{0.0f};
   float scale{1.0f};
+  /// Dla `Car`: 0 = Toyota AE86, 1 = Xeno GT (GR86). Dla lamp ignorowane.
+  uint8_t carModel{0};
 };
 
 class ParkingScene {

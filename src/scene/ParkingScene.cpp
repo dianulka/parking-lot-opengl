@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
 #include <vector>
@@ -119,7 +120,7 @@ ParkingScene::ParkingScene(ParkingGenerator generator) : generator_(std::move(ge
 uint64_t ParkingScene::layoutHash() const {
   const uint32_t lenBits = static_cast<uint32_t>(generator_.length() * 1000.0f);
   const uint32_t spots = static_cast<uint32_t>(generator_.spotCount());
-  constexpr uint32_t kPlacementVer = 16u;
+  constexpr uint32_t kPlacementVer = 19u;
   return (static_cast<uint64_t>(lenBits) << 32) | static_cast<uint64_t>(spots ^ (kPlacementVer * 0x9E3779B1u));
 }
 
@@ -187,11 +188,13 @@ void ParkingScene::rebuildPlacements() {
   std::seed_seq seq{static_cast<uint32_t>(seed >> 32u), static_cast<uint32_t>(seed & 0xffffffffu)};
   std::mt19937 rng(seq);
   std::shuffle(carSpots.begin(), carSpots.end(), rng);
+  std::uniform_int_distribution<int> carModelDist(0, 1);
 
   const int placeCount = std::min(targetCars, static_cast<int>(carSpots.size()));
   for (int i = 0; i < placeCount; ++i) {
     const CarSpot& s = carSpots[static_cast<size_t>(i)];
-    props_.push_back({PropKind::Car, {s.x, kCarY, s.z}, s.yaw, kCarScale});
+    const uint8_t modelIdx = static_cast<uint8_t>(carModelDist(rng));
+    props_.push_back({PropKind::Car, {s.x, kCarY, s.z}, s.yaw, kCarScale, modelIdx});
   }
 
   constexpr float kLampScale = 0.93f;

@@ -333,14 +333,22 @@ void Renderer::renderShadowPass(const ParkingScene& scene, const glm::mat4& ligh
   glPolygonOffset(1.25f, 4.0f);
 
   for (const PlacedProp& p : scene.props()) {
-    const int k = static_cast<int>(p.kind);
-    if (k < 0 || k >= static_cast<int>(propModels_.size()) || !propModels_[static_cast<size_t>(k)].ready()) {
+    const GltfModel* model = nullptr;
+    if (p.kind == PropKind::Car) {
+      const size_t mi = static_cast<size_t>(p.carModel) % kCarModelCount;
+      if (carModels_[mi].ready()) {
+        model = &carModels_[mi];
+      }
+    } else if (p.kind == PropKind::Lamp && lampModel_.ready()) {
+      model = &lampModel_;
+    }
+    if (!model) {
       continue;
     }
     glm::mat4 m = glm::translate(glm::mat4(1.0f), p.position);
     m = glm::rotate(m, p.rotY, glm::vec3(0.0f, 1.0f, 0.0f));
     m = glm::scale(m, glm::vec3(p.scale));
-    propModels_[static_cast<size_t>(k)].drawShadow(m, lightViewProj, depthShader_);
+    model->drawShadow(m, lightViewProj, depthShader_);
   }
 
   glDisable(GL_POLYGON_OFFSET_FILL);
@@ -411,12 +419,15 @@ void Renderer::init() {
   glEnableVertexAttribArray(0);
   glBindVertexArray(0);
 
-  static const char* kPropRel[] = {
-      "models/1985_toyota_sprinter_trueno_ae86.glb",  // Car
-      "models/scifi_lamp.glb",                        // Lamp
+  static const char* kCarPaths[] = {
+      "models/1985_toyota_sprinter_trueno_ae86.glb",
+      "models/2023_xeno_gt-spec_toyota_gr86_zn8.glb",
   };
-  propModels_[0].loadFromFile(assetPath(kPropRel[0]), 4.5f);
-  propModels_[1].loadFromFile(assetPath(kPropRel[1]), 2.8f);
+  constexpr float kCarNormalizeM = 4.5f;
+  for (int i = 0; i < kCarModelCount; ++i) {
+    carModels_[static_cast<size_t>(i)].loadFromFile(assetPath(kCarPaths[static_cast<size_t>(i)]), kCarNormalizeM);
+  }
+  lampModel_.loadFromFile(assetPath("models/scifi_lamp.glb"), 2.8f);
 
   grassBlades_.create();
 }
@@ -925,8 +936,16 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   modelShader_.setVec3("uSunDiskColor", sunColor.x, sunColor.y, sunColor.z);
 
   for (const PlacedProp& p : scene.props()) {
-    const int k = static_cast<int>(p.kind);
-    if (k < 0 || k >= static_cast<int>(propModels_.size()) || !propModels_[static_cast<size_t>(k)].ready()) {
+    const GltfModel* model = nullptr;
+    if (p.kind == PropKind::Car) {
+      const size_t mi = static_cast<size_t>(p.carModel) % kCarModelCount;
+      if (carModels_[mi].ready()) {
+        model = &carModels_[mi];
+      }
+    } else if (p.kind == PropKind::Lamp && lampModel_.ready()) {
+      model = &lampModel_;
+    }
+    if (!model) {
       continue;
     }
     float spec = 0.1f;
@@ -938,8 +957,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     glm::mat4 m = glm::translate(glm::mat4(1.0f), p.position);
     m = glm::rotate(m, p.rotY, glm::vec3(0.0f, 1.0f, 0.0f));
     m = glm::scale(m, glm::vec3(p.scale));
-    propModels_[static_cast<size_t>(k)].draw(m, vp, lightVP, modelShader_, lightDir, camPos, amb, spec, kShadowUnit,
-                                             kModelDiffuseUnit, whiteTex_);
+    model->draw(m, vp, lightVP, modelShader_, lightDir, camPos, amb, spec, kShadowUnit, kModelDiffuseUnit, whiteTex_);
   }
 
   glActiveTexture(GL_TEXTURE0);
