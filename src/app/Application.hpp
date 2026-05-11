@@ -7,6 +7,8 @@
 #include "rendering/Renderer.hpp"
 #include "scene/ParkingScene.hpp"
 
+#include <optional>
+
 struct GLFWwindow;
 
 namespace parking {
@@ -21,6 +23,9 @@ public:
   /// Zwraca true, jeśli ESC został zużyty do zamknięcia panelu (nie kończy aplikacji).
   bool consumeEscapeForSettings();
 
+  /// Zwraca true, jeśli ESC anulował wybór auta (nie kończy aplikacji).
+  bool consumeEscapeForCarSelection();
+
 private:
   static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
   static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
@@ -30,6 +35,8 @@ private:
   void applySpotCountFromUi();
   void handleParkingSettingsKeys();
   void updateWindowTitle();
+  void handleWorldLeftClick(float fx, float fy, int fbW, int fbH);
+  void sanitizeCarSelection();
 
   Window window_;
   ParkingScene scene_;
@@ -42,6 +49,7 @@ private:
   bool prevBracketLeft_{false};
   bool prevBracketRight_{false};
   bool prevKeyN_{false};
+  std::optional<size_t> selectedCarPropIndex_{};
 };
 
 }  // namespace parking

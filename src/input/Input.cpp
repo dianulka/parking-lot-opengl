@@ -31,6 +31,9 @@ void Input::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int actio
       if (h->app && h->app->consumeEscapeForSettings()) {
         break;
       }
+      if (h->app && h->app->consumeEscapeForCarSelection()) {
+        break;
+      }
       glfwSetWindowShouldClose(window, GLFW_TRUE);
       break;
     default:

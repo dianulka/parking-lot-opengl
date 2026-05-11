@@ -4,6 +4,7 @@
 #include "gl/GlContext.hpp"
 #include "lighting/Lighting.hpp"
 #include "scene/ParkingGenerator.hpp"
+#include "scene/ScreenRay.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -63,7 +64,8 @@ Application::Application(ParkingScene&& scene)
   std::printf(
       "Sterowanie: WASD — przesuniecie | strzalki — obrot | scroll — zoom\n"
       "Panel: klik przycisk w lewym górnym rogu — nakładka i okno ustawień. "
-      "[ ] — liczba miejsc; N — dzien / noc; ESC — zamknij panel.\n"
+      "[ ] — liczba miejsc; N — dzien / noc; ESC — zamknij panel / anuluj wybor auta.\n"
+      "Auto: klik na pojazd, potem klik na wolne miejsce (poza pasem). Zmiana liczby miejsc resetuje układ.\n"
       "Miejsc: %d  dlugosc: %.1f m\n",
       scene_.generator().spotCount(), static_cast<double>(scene_.generator().length()));
 }
@@ -77,7 +79,52 @@ bool Application::consumeEscapeForSettings() {
   return true;
 }
 
+bool Application::consumeEscapeForCarSelection() {
+  if (!selectedCarPropIndex_.has_value()) {
+    return false;
+  }
+  selectedCarPropIndex_.reset();
+  return true;
+}
+
+void Application::sanitizeCarSelection() {
+  if (!selectedCarPropIndex_.has_value()) {
+    return;
+  }
+  const size_t i = *selectedCarPropIndex_;
+  if (i >= scene_.props().size() || scene_.props()[i].kind != PropKind::Car) {
+    selectedCarPropIndex_.reset();
+  }
+}
+
+void Application::handleWorldLeftClick(float fx, float fy, int fbW, int fbH) {
+  sanitizeCarSelection();
+
+  glm::vec3 rayOrigin{};
+  glm::vec3 rayDir{};
+  if (!screenToWorldRay(fx, fy, fbW, fbH, camera_, rayOrigin, rayDir)) {
+    return;
+  }
+
+  constexpr float kGroundY = 0.0f;
+  glm::vec3 groundPoint{};
+  const bool groundHit = rayIntersectPlaneY(rayOrigin, rayDir, kGroundY, groundPoint);
+
+  if (selectedCarPropIndex_.has_value()) {
+    if (groundHit &&
+        scene_.tryMoveCarToWorldXZ(*selectedCarPropIndex_, groundPoint.x, groundPoint.z)) {
+      selectedCarPropIndex_.reset();
+      return;
+    }
+  }
+
+  if (const auto picked = scene_.pickCarPropIndex(rayOrigin, rayDir)) {
+    selectedCarPropIndex_ = *picked;
+  }
+}
+
 void Application::applySpotCountFromUi() {
+  selectedCarPropIndex_.reset();
   scene_.generator().setSpotCount(uiSpotCount_);
   scene_.generator().syncLengthToSpotCount();
   uiSpotCount_ = scene_.generator().spotCount();
@@ -185,7 +232,10 @@ void Application::mouseButtonCallback(GLFWwindow* window, int button, int action
   if (fx >= xMin && fx <= xMax && fy >= yMinTop && fy <= yMaxTop) {
     h->app->settingsOpen_ = !h->app->settingsOpen_;
     h->app->updateWindowTitle();
+    return;
   }
+
+  h->app->handleWorldLeftClick(fx, fy, fbW, fbH);
 }
 
 void Application::updateCamera(GLFWwindow* window, Camera& camera, float dt) {
@@ -228,7 +278,8 @@ int Application::run() {
     handleParkingSettingsKeys();
     updateCamera(window_.native(), camera_, dt);
 
-    renderer_.draw(scene_, camera_, static_cast<float>(now), settingsOpen_);
+    sanitizeCarSelection();
+    renderer_.draw(scene_, camera_, static_cast<float>(now), settingsOpen_, selectedCarPropIndex_.has_value());
 
     window_.swapBuffers();
     window_.pollEvents();

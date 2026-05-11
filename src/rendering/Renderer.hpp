@@ -28,10 +28,12 @@ public:
 
   void init();
   void resize(int width, int height);
-  void draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen);
+  void draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen,
+            bool carAwaitingDestination);
 
 private:
-  void drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode);
+  void drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode,
+                      bool carAwaitingDestination);
   void drawHudCornerOverlay(const glm::mat4& orthoPx, bool parkingSettingsOpen);
   void initShadowMap();
   void renderShadowPass(const ParkingScene& scene, const glm::mat4& lightViewProj, float timeSec);

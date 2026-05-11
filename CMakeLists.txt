@@ -126,6 +126,8 @@ add_executable(ParkingLot
 
   src/scene/ParkingScene.cpp
 
+  src/scene/ScreenRay.cpp
+
   src/models/GltfModel.cpp
 
   src/models/GrassBlades.cpp

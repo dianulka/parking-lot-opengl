@@ -1,11 +1,118 @@
 #include "scene/ParkingScene.hpp"
 
+#include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <vector>
 
 namespace parking {
+
+namespace {
+
+constexpr float kCarY = 0.06f;
+constexpr float kYawLeft = 0.0f;
+constexpr float kYawRight = 3.14159265f;
+
+/// Pudełko pick w przestrzeni modelu (auto znormalizowane ~4.5 m); środek modelu ~środek pojazdu.
+const glm::vec3 kCarPickHalfExtents(2.15f, 0.52f, 1.0f);
+
+struct LotGeom {
+  float L{};
+  float halfL{};
+  float halfW{};
+  float halfA{};
+  int nLeft{};
+  int nRight{};
+  float dxL{};
+  float dxR{};
+  float zLeftCenter{};
+  float zRightCenter{};
+  float grassL{};
+  float gHalfL{};
+};
+
+void fillLotGeom(const ParkingGenerator& gen, LotGeom& g) {
+  g.L = gen.length();
+  const float W = ParkingGenerator::fixedWidth();
+  const float aisle = ParkingGenerator::aisleWidthMeters();
+  const float mg = ParkingGenerator::grassMarginMeters();
+  g.halfL = g.L * 0.5f;
+  g.halfW = W * 0.5f;
+  g.halfA = aisle * 0.5f;
+  g.grassL = g.L + 2.0f * mg;
+  g.gHalfL = g.grassL * 0.5f;
+  g.nLeft = std::max(1, gen.leftRowSpotCount());
+  g.nRight = std::max(1, gen.rightRowSpotCount());
+  g.dxL = g.L / static_cast<float>(g.nLeft);
+  g.dxR = g.L / static_cast<float>(g.nRight);
+  g.zLeftCenter = -(g.halfW + g.halfA) * 0.5f;
+  g.zRightCenter = (g.halfW + g.halfA) * 0.5f;
+}
+
+bool carOnSpotOk(const LotGeom& g, float x, float z) {
+  if (std::abs(x) > g.halfL + 0.01f) {
+    return false;
+  }
+  if (std::abs(z) < g.halfA - 0.01f) {
+    return false;
+  }
+  return true;
+}
+
+bool raySlabAabb(const glm::vec3& o, const glm::vec3& d, const glm::vec3& bmin, const glm::vec3& bmax, float& tHit) {
+  float tMin = 0.0f;
+  float tMax = std::numeric_limits<float>::max();
+  constexpr float kEps = 1e-8f;
+  for (int i = 0; i < 3; ++i) {
+    if (std::abs(d[i]) < kEps) {
+      if (o[i] < bmin[i] || o[i] > bmax[i]) {
+        return false;
+      }
+    } else {
+      const float invD = 1.0f / d[i];
+      float t1 = (bmin[i] - o[i]) * invD;
+      float t2 = (bmax[i] - o[i]) * invD;
+      if (t1 > t2) {
+        std::swap(t1, t2);
+      }
+      tMin = std::max(tMin, t1);
+      tMax = std::min(tMax, t2);
+      if (tMin > tMax) {
+        return false;
+      }
+    }
+  }
+  if (tMax < 0.0f) {
+    return false;
+  }
+  tHit = (tMin >= 0.0f) ? tMin : tMax;
+  return std::isfinite(tHit) && tHit >= 0.0f;
+}
+
+bool snapHitToSpot(const LotGeom& g, float hitX, float hitZ, float& outX, float& outZ, float& outYaw) {
+  constexpr float kAisleMargin = 0.02f;
+  if (std::abs(hitZ) < g.halfA - kAisleMargin) {
+    return false;
+  }
+  const float distL = std::abs(hitZ - g.zLeftCenter);
+  const float distR = std::abs(hitZ - g.zRightCenter);
+  const bool useLeft = distL <= distR;
+  const int n = useLeft ? g.nLeft : g.nRight;
+  const float dx = useLeft ? g.dxL : g.dxR;
+  const float t = (hitX + g.halfL) / dx - 0.5f;
+  int idx = static_cast<int>(std::lround(t));
+  idx = std::clamp(idx, 0, n - 1);
+  outX = -g.halfL + (static_cast<float>(idx) + 0.5f) * dx;
+  outZ = useLeft ? g.zLeftCenter : g.zRightCenter;
+  outYaw = useLeft ? kYawLeft : kYawRight;
+  return carOnSpotOk(g, outX, outZ);
+}
+
+}  // namespace
 
 ParkingScene::ParkingScene(ParkingGenerator generator) : generator_(std::move(generator)) {}
 
@@ -29,48 +136,30 @@ void ParkingScene::rebuildPlacements() {
   props_.clear();
 
   const auto& gen = generator_;
-  const float L = gen.length();
-  const float W = ParkingGenerator::fixedWidth();
-  const float aisle = ParkingGenerator::aisleWidthMeters();
-  const float mg = ParkingGenerator::grassMarginMeters();
+  LotGeom lg{};
+  fillLotGeom(gen, lg);
 
-  const float halfL = L * 0.5f;
-  const float halfW = W * 0.5f;
-  const float halfA = aisle * 0.5f;
-  const float grassL = L + 2.0f * mg;
-  const float gHalfL = grassL * 0.5f;
-
-  const int nLeft = std::max(1, gen.leftRowSpotCount());
-  const int nRight = std::max(1, gen.rightRowSpotCount());
-  const float dxL = L / static_cast<float>(nLeft);
-  const float dxR = L / static_cast<float>(nRight);
-
-  const float zLeftCenter = -(halfW + halfA) * 0.5f;
-  const float zRightCenter = (halfW + halfA) * 0.5f;
+  const float halfL = lg.halfL;
+  const float halfW = lg.halfW;
+  const float halfA = lg.halfA;
+  const float gHalfL = lg.gHalfL;
+  const int nLeft = lg.nLeft;
+  const int nRight = lg.nRight;
+  const float dxL = lg.dxL;
+  const float dxR = lg.dxR;
+  const float zLeftCenter = lg.zLeftCenter;
+  const float zRightCenter = lg.zRightCenter;
 
   auto spotXLeft = [&](int idx) { return -halfL + (static_cast<float>(idx) + 0.5f) * dxL; };
   auto spotXRight = [&](int idx) { return -halfL + (static_cast<float>(idx) + 0.5f) * dxR; };
 
   constexpr float kCarScale = 1.0f;
-  constexpr float kCarY = 0.06f;
-  constexpr float kYawLeft = 0.0f;
-  constexpr float kYawRight = 3.14159265f;
 
   const int totalSpots = nLeft + nRight;
   int targetCars = (totalSpots * 2) / 5;
   targetCars = std::max(1, targetCars);
   const int maxCars = std::min(20, std::max(1, totalSpots - 1));
   targetCars = std::min(targetCars, maxCars);
-
-  auto carOnSpotOk = [&](float x, float z) {
-    if (std::abs(x) > halfL + 0.01f) {
-      return false;
-    }
-    if (std::abs(z) < halfA - 0.01f) {
-      return false;
-    }
-    return true;
-  };
 
   struct CarSpot {
     float x{};
@@ -82,14 +171,14 @@ void ParkingScene::rebuildPlacements() {
   for (int i = 0; i < nLeft; ++i) {
     const float x = spotXLeft(i);
     const float z = zLeftCenter;
-    if (carOnSpotOk(x, z)) {
+    if (carOnSpotOk(lg, x, z)) {
       carSpots.push_back({x, z, kYawLeft});
     }
   }
   for (int i = 0; i < nRight; ++i) {
     const float x = spotXRight(i);
     const float z = zRightCenter;
-    if (carOnSpotOk(x, z)) {
+    if (carOnSpotOk(lg, x, z)) {
       carSpots.push_back({x, z, kYawRight});
     }
   }
@@ -122,7 +211,6 @@ void ParkingScene::rebuildPlacements() {
   props_.push_back({PropKind::Lamp, {-gHalfL * kRoadEndX, 0.0f, 0.0f}, 0.0f, kLampScale});
   props_.push_back({PropKind::Lamp, {gHalfL * kRoadEndX, 0.0f, 0.0f}, 3.14159265f, kLampScale});
 
-  /// Lampy na środku pasa drogi poza prostokątem parkingu (co 100 m).
   constexpr float kRoadLampAlongStepM = 100.0f;
   constexpr float kRoadLampEdgeMargin = 12.0f;
   const float roadXMin = -gHalfL + kRoadLampEdgeMargin;
@@ -138,7 +226,7 @@ void ParkingScene::rebuildPlacements() {
 
   const int nAlong = std::max(nLeft, nRight);
   if (nAlong >= kLampEveryNSpots) {
-    const float dxAlong = L / static_cast<float>(nAlong);
+    const float dxAlong = gen.length() / static_cast<float>(nAlong);
     auto xAlong = [&](int i) { return -halfL + (static_cast<float>(i) + 0.5f) * dxAlong; };
     constexpr int kMaxExtraPairs = 21;
     int pairs = 0;
@@ -149,6 +237,61 @@ void ParkingScene::rebuildPlacements() {
       ++pairs;
     }
   }
+}
+
+std::optional<size_t> ParkingScene::pickCarPropIndex(const glm::vec3& rayOrigin, const glm::vec3& rayDir) const {
+  const glm::vec3 bmin = -kCarPickHalfExtents;
+  const glm::vec3 bmax = kCarPickHalfExtents;
+  float bestT = std::numeric_limits<float>::infinity();
+  std::optional<size_t> best;
+  for (size_t i = 0; i < props_.size(); ++i) {
+    if (props_[i].kind != PropKind::Car) {
+      continue;
+    }
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), props_[i].position);
+    m = glm::rotate(m, props_[i].rotY, glm::vec3(0.0f, 1.0f, 0.0f));
+    m = glm::scale(m, glm::vec3(props_[i].scale));
+    const glm::mat4 invM = glm::inverse(m);
+    const glm::vec4 oL = invM * glm::vec4(rayOrigin, 1.0f);
+    const glm::vec4 dL = invM * glm::vec4(rayDir, 0.0f);
+    float t = 0.0f;
+    if (raySlabAabb(glm::vec3(oL), glm::vec3(dL), bmin, bmax, t) && t < bestT) {
+      bestT = t;
+      best = i;
+    }
+  }
+  return best;
+}
+
+bool ParkingScene::tryMoveCarToWorldXZ(size_t propIndex, float worldHitX, float worldHitZ) {
+  if (propIndex >= props_.size() || props_[propIndex].kind != PropKind::Car) {
+    return false;
+  }
+  LotGeom g{};
+  fillLotGeom(generator_, g);
+  float sx = 0.0f;
+  float sz = 0.0f;
+  float yaw = 0.0f;
+  if (!snapHitToSpot(g, worldHitX, worldHitZ, sx, sz, yaw)) {
+    return false;
+  }
+  const float sep = std::min(g.dxL, g.dxR) * 0.35f;
+  const float sep2 = sep * sep;
+  for (size_t i = 0; i < props_.size(); ++i) {
+    if (props_[i].kind != PropKind::Car || i == propIndex) {
+      continue;
+    }
+    const float dx = props_[i].position.x - sx;
+    const float dz = props_[i].position.z - sz;
+    if (dx * dx + dz * dz < sep2) {
+      return false;
+    }
+  }
+  props_[propIndex].position.x = sx;
+  props_[propIndex].position.z = sz;
+  props_[propIndex].position.y = kCarY;
+  props_[propIndex].rotY = yaw;
+  return true;
 }
 
 }  // namespace parking

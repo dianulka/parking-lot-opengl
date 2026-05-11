@@ -427,7 +427,8 @@ void Renderer::resize(int width, int height) {
   glViewport(0, 0, width, height);
 }
 
-void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode) {
+void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode,
+                             bool carAwaitingDestination) {
   if (fbWidth_ <= 0 || fbHeight_ <= 0) {
     return;
   }
@@ -606,6 +607,18 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
     glLineWidth(1.5f);
   }
 
+  if (!parkingSettingsOpen && carAwaitingDestination) {
+    static std::vector<float> hudTriHint;
+    constexpr float kHintScale = 1.35f;
+    const char* hint = "Auto wybrane - kliknij wolne miejsce (ESC anuluje)";
+    const float textW = static_cast<float>(stb_easy_font_width(const_cast<char*>(hint))) * kHintScale;
+    const float textX = std::max(8.0f, (fw - textW) * 0.5f);
+    const float textY = fh - 32.0f;
+    hudTriHint.clear();
+    appendEasyFontTriangles(fh, textX, textY, kHintScale, hint, hudTriHint);
+    flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriHint, 0.82f, 0.9f, 1.0f, 0.92f);
+  }
+
   drawHudCornerOverlay(ortho, parkingSettingsOpen);
 
   glBindVertexArray(0);
@@ -680,7 +693,8 @@ void Renderer::drawHudCornerOverlay(const glm::mat4& ortho, bool parkingSettings
   glDrawArrays(GL_LINES, 0, 6);
 }
 
-void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen) {
+void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen,
+                    bool carAwaitingDestination) {
   if (fbWidth_ <= 0 || fbHeight_ <= 0) {
     return;
   }
@@ -931,7 +945,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  drawOverlayUi(parkingSettingsOpen, gen, scene.lighting().mode());
+  drawOverlayUi(parkingSettingsOpen, gen, scene.lighting().mode(), carAwaitingDestination);
 }
 
 }  // namespace parking

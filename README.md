@@ -180,6 +180,10 @@ Po uruchomieniu programu użytkownik widzi kompletną scenę parkingu wygenerowa
 Opcjonalnie:
 - strzałki lub `WSAD` – zmiana położenia albo kąta kamery.
 
+W bieżącej aplikacji dodatkowo:
+- lewy przycisk myszy (poza przyciskiem ustawień w lewym górnym rogu) — klik na samochód, następnie klik na wolne miejsce w rzędzie (nie na środkowy pas); `ESC` przy wybranym aucie anuluje wybór zamiast zamykać okno;
+- panel ustawień: `[` `]` — liczba miejsc, `N` — dzień / noc (szczegóły w konsoli przy starcie).
+
 ## 8. Wymagania niefunkcjonalne
 
 

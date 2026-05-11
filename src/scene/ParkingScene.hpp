@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace parking {
@@ -32,6 +33,13 @@ public:
   [[nodiscard]] const Lighting& lighting() const { return lighting_; }
 
   [[nodiscard]] const std::vector<PlacedProp>& props() const { return props_; }
+
+  /// Najbliższy trafiony samochód wzdłuż promienia (tylko `PropKind::Car`).
+  [[nodiscard]] std::optional<size_t> pickCarPropIndex(const glm::vec3& rayOrigin, const glm::vec3& rayDir) const;
+
+  /// Przenosi auto na najbliższe legalne miejsce przy (worldHitX, worldHitZ); false przy kolizji / jezdni / braku
+  /// indeksu.
+  bool tryMoveCarToWorldXZ(size_t propIndex, float worldHitX, float worldHitZ);
 
 private:
   void rebuildPlacements();
