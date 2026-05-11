@@ -1,6 +1,6 @@
 # ```Symulacja parkingu prostokątnego w OpenGL z parametryzowaną liczbą miejsc postojowych oraz parametryzowanym wymiarem zewnętrznym```
 
-**Bieżąca implementacja (kod):** modele glTF z `assets/models/` (dwa typy aut na parkingu: `1985_toyota_sprinter_trueno_ae86.glb` oraz `2023_xeno_gt-spec_toyota_gr86_zn8.glb`; lampy sci‑fi przy liniach parkingu i przy pasie drogi); **jedna duża plansza trawy**; asfalt tylko na **parking L×W** i na **pasie drogi** przez trawę (bez dodatkowego asfaltu poza obrysem parkingu); światło kierunkowe i mapa cieni; parametry `--spaces` / `--length`.
+**Bieżąca implementacja (kod):** modele glTF z `assets/models/` (trzy typy aut na parkingu: `1985_toyota_sprinter_trueno_ae86.glb`, `2023_xeno_gt-spec_toyota_gr86_zn8.glb`, `2023_toyota_avalon_hybrid_limited.glb`; lampy sci‑fi przy liniach parkingu i przy pasie drogi); **jedna duża plansza trawy**; asfalt tylko na **parking L×W** i na **pasie drogi** przez trawę (bez dodatkowego asfaltu poza obrysem parkingu); światło kierunkowe i mapa cieni; parametry `--spaces` / `--length`.
 
 ### Jak uruchomić (GitHub / nowy komputer)
 

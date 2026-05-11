@@ -120,7 +120,7 @@ ParkingScene::ParkingScene(ParkingGenerator generator) : generator_(std::move(ge
 uint64_t ParkingScene::layoutHash() const {
   const uint32_t lenBits = static_cast<uint32_t>(generator_.length() * 1000.0f);
   const uint32_t spots = static_cast<uint32_t>(generator_.spotCount());
-  constexpr uint32_t kPlacementVer = 19u;
+  constexpr uint32_t kPlacementVer = 20u;
   return (static_cast<uint64_t>(lenBits) << 32) | static_cast<uint64_t>(spots ^ (kPlacementVer * 0x9E3779B1u));
 }
 
@@ -188,7 +188,7 @@ void ParkingScene::rebuildPlacements() {
   std::seed_seq seq{static_cast<uint32_t>(seed >> 32u), static_cast<uint32_t>(seed & 0xffffffffu)};
   std::mt19937 rng(seq);
   std::shuffle(carSpots.begin(), carSpots.end(), rng);
-  std::uniform_int_distribution<int> carModelDist(0, 1);
+  std::uniform_int_distribution<int> carModelDist(0, 2);
 
   const int placeCount = std::min(targetCars, static_cast<int>(carSpots.size()));
   for (int i = 0; i < placeCount; ++i) {

@@ -422,6 +422,7 @@ void Renderer::init() {
   static const char* kCarPaths[] = {
       "models/1985_toyota_sprinter_trueno_ae86.glb",
       "models/2023_xeno_gt-spec_toyota_gr86_zn8.glb",
+      "models/2023_toyota_avalon_hybrid_limited.glb",
   };
   constexpr float kCarNormalizeM = 4.5f;
   for (int i = 0; i < kCarModelCount; ++i) {

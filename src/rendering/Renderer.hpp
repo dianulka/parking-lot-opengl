@@ -44,7 +44,7 @@ private:
   Shader groundShader_;
   Shader grassShader_;
   Shader grassDepthShader_;
-  static constexpr int kCarModelCount = 2;
+  static constexpr int kCarModelCount = 3;
   std::array<GltfModel, kCarModelCount> carModels_{};
   GltfModel lampModel_{};
   GrassBlades grassBlades_;
