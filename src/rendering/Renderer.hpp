@@ -44,6 +44,7 @@ private:
   Shader groundShader_;
   Shader grassShader_;
   Shader grassDepthShader_;
+  Shader skyShader_;
   static constexpr int kCarModelCount = 3;
   std::array<GltfModel, kCarModelCount> carModels_{};
   GltfModel lampModel_{};
@@ -54,6 +55,8 @@ private:
   GLuint quadEbo_{0};
   GLuint lineVao_{0};
   GLuint lineVbo_{0};
+  GLuint skyVao_{0};
+  GLuint skyVbo_{0};
   GLuint shadowFbo_{0};
   GLuint shadowTex_{0};
   GLuint whiteTex_{0};

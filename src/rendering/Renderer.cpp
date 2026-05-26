@@ -281,6 +281,12 @@ Renderer::~Renderer() {
   if (lineVbo_) {
     glDeleteBuffers(1, &lineVbo_);
   }
+  if (skyVao_) {
+    glDeleteVertexArrays(1, &skyVao_);
+  }
+  if (skyVbo_) {
+    glDeleteBuffers(1, &skyVbo_);
+  }
   if (shadowFbo_) {
     glDeleteFramebuffers(1, &shadowFbo_);
   }
@@ -362,6 +368,7 @@ void Renderer::init() {
   grassShader_.load(assetPath("shaders/grass_inst.vert"), assetPath("shaders/grass_inst.frag"));
   grassDepthShader_.load(assetPath("shaders/grass_depth.vert"), assetPath("shaders/depth.frag"));
   groundShader_.load(assetPath("shaders/ground.vert"), assetPath("shaders/ground.frag"));
+  skyShader_.load(assetPath("shaders/sky.vert"), assetPath("shaders/sky.frag"));
   {
     const GLuint p = groundShader_.program();
     const char* names[] = {"uShadowMap", "uGrassAlbedo", "uRoadAlbedo"};
@@ -416,6 +423,21 @@ void Renderer::init() {
   glBindVertexArray(lineVao_);
   glBindBuffer(GL_ARRAY_BUFFER, lineVbo_);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+  glEnableVertexAttribArray(0);
+  glBindVertexArray(0);
+
+  // Fullscreen triangle dla nieba (pokrywa cały viewport po obcięciu).
+  constexpr float skyVerts[] = {
+      -1.0f, -1.0f,
+       3.0f, -1.0f,
+      -1.0f,  3.0f,
+  };
+  glGenVertexArrays(1, &skyVao_);
+  glGenBuffers(1, &skyVbo_);
+  glBindVertexArray(skyVao_);
+  glBindBuffer(GL_ARRAY_BUFFER, skyVbo_);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(skyVerts), skyVerts, GL_STATIC_DRAW);
+  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), nullptr);
   glEnableVertexAttribArray(0);
   glBindVertexArray(0);
 
@@ -796,6 +818,23 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   const glm::vec3 bg = scene.lighting().clearColor();
   glClearColor(bg.r, bg.g, bg.b, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  // Procedural skybox (dzień / noc) — pełnoekranowy trójkąt, bez testu głębi i bez zapisu Z.
+  {
+    const glm::mat4 invVP = glm::inverse(vp);
+    const bool isNight = scene.lighting().mode() == LightingMode::Night;
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    skyShader_.use();
+    skyShader_.setMat4("uInvViewProj", glm::value_ptr(invVP));
+    skyShader_.setVec3("uSunDir", lightDir.x, lightDir.y, lightDir.z);
+    skyShader_.setInt("uIsNight", isNight ? 1 : 0);
+    skyShader_.setFloat("uTime", timeSec);
+    glBindVertexArray(skyVao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+  }
 
   glEnable(GL_DEPTH_TEST);
   glLineWidth(1.5f);
