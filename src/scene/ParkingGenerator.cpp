@@ -8,21 +8,31 @@ namespace parking {
 ParkingGenerator::ParkingGenerator() { clampParameters(); }
 
 void ParkingGenerator::clampParameters() {
-  spotCount_ = std::clamp(spotCount_, kMinSpots, kMaxSpots);
+  rowCount_ = std::clamp(rowCount_, kMinRows, kMaxRows);
+  spotsPerRow_ = std::clamp(spotsPerRow_, kMinSpotsPerRow, kMaxSpotsPerRow);
   length_ = std::clamp(length_, kMinLength, kMaxLength);
 
+  // Ograniczenie z geometrii: spotsPerRow * minSpotWidth nie może przekroczyć długości.
   const int maxForLength =
-      static_cast<int>(std::floor(length_ / ParkingGenerator::minSpotWidthAlongLotMeters())) * 2;
-  if (maxForLength >= kMinSpots && spotCount_ > maxForLength) {
-    spotCount_ = maxForLength;
+      static_cast<int>(std::floor(length_ / ParkingGenerator::minSpotWidthAlongLotMeters()));
+  if (maxForLength >= kMinSpotsPerRow && spotsPerRow_ > maxForLength) {
+    spotsPerRow_ = maxForLength;
   }
-  if (spotCount_ > kMaxSpots) {
-    spotCount_ = kMaxSpots;
+
+  // Twardy limit na łączną liczbę miejsc — chroni przed scenami z setkami aut.
+  const int total = spotsPerRow_ * rowCount_;
+  if (total > kMaxSpots) {
+    spotsPerRow_ = std::max(kMinSpotsPerRow, kMaxSpots / rowCount_);
   }
 }
 
 void ParkingGenerator::setSpotCount(int n) {
-  spotCount_ = n;
+  spotsPerRow_ = std::max(1, n / std::max(1, rowCount_));
+  clampParameters();
+}
+
+void ParkingGenerator::setSpotsPerRow(int n) {
+  spotsPerRow_ = n;
   clampParameters();
 }
 
@@ -31,22 +41,23 @@ void ParkingGenerator::setLength(float lengthMeters) {
   clampParameters();
 }
 
+void ParkingGenerator::setRowCount(int rows) {
+  rowCount_ = rows;
+  clampParameters();
+}
+
 void ParkingGenerator::syncLengthToSpotCount() {
   clampParameters();
-  const int nLeft = std::max(1, leftRowSpotCount());
+  const int perRow = std::max(1, spotsPerRow_);
   constexpr float kSlotPitchAlongLotMeters = 4.5f;
-  float L = static_cast<float>(nLeft) * kSlotPitchAlongLotMeters;
+  float L = static_cast<float>(perRow) * kSlotPitchAlongLotMeters;
   L = std::clamp(L, kMinLength, kMaxLength);
   length_ = L;
   clampParameters();
 }
 
-int ParkingGenerator::spotsPerRow() const {
-  return (spotCount_ + 1) / 2;
-}
-
 float ParkingGenerator::spotLengthAlongLot() const {
-  const int perRow = std::max(1, spotsPerRow());
+  const int perRow = std::max(1, spotsPerRow_);
   return length_ / static_cast<float>(perRow);
 }
 

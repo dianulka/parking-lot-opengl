@@ -32,7 +32,8 @@ private:
   static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
   static void updateCamera(GLFWwindow* window, Camera& camera, float dt);
 
-  void applySpotCountFromUi();
+  void applySpotsPerRowFromUi();
+  void applyRowCountFromUi();
   void handleParkingSettingsKeys();
   void updateWindowTitle();
   void handleWorldLeftClick(float fx, float fy, int fbW, int fbH);
@@ -45,9 +46,12 @@ private:
   WindowHooks hooks_{};
   Input input_{};
   bool settingsOpen_{false};
-  int uiSpotCount_{32};
+  int uiSpotsPerRow_{16};
+  int uiRowCount_{2};
   bool prevBracketLeft_{false};
   bool prevBracketRight_{false};
+  bool prevCommaKey_{false};
+  bool prevPeriodKey_{false};
   bool prevKeyN_{false};
   std::optional<size_t> selectedCarPropIndex_{};
 };

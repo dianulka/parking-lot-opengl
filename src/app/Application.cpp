@@ -43,7 +43,7 @@ Application::Application(ParkingScene&& scene)
   glfwSetScrollCallback(window_.native(), scrollCallback);
 
   const float L = scene_.generator().length();
-  const float W = ParkingGenerator::fixedWidth();
+  const float W = scene_.generator().width();
   const float mg = ParkingGenerator::grassMarginMeters();
   const float span = std::max(L, W) + 2.0f * mg;
   // Domyślny widok: z góry z lekką perspektywą, ukośnie na pas jezdni / miejsca (jak pierwszy podgląd).
@@ -59,15 +59,18 @@ Application::Application(ParkingScene&& scene)
   renderer_.resize(w, h);
   renderer_.init();
 
-  uiSpotCount_ = scene_.generator().spotCount();
+  uiSpotsPerRow_ = scene_.generator().spotsPerRow();
+  uiRowCount_ = scene_.generator().rowCount();
 
   std::printf(
       "Sterowanie: WASD — przesuniecie | strzalki — obrot | scroll — zoom\n"
       "Panel: klik przycisk w lewym górnym rogu — nakładka i okno ustawień. "
-      "[ ] — liczba miejsc; N — dzien / noc; ESC — zamknij panel / anuluj wybor auta.\n"
-      "Auto: klik na pojazd, potem klik na wolne miejsce (poza pasem). Zmiana liczby miejsc resetuje układ.\n"
-      "Miejsc: %d  dlugosc: %.1f m\n",
-      scene_.generator().spotCount(), static_cast<double>(scene_.generator().length()));
+      "[ ] — miejsca na rzad; , . — liczba rzedow; N — dzien / noc; ESC — zamknij panel / anuluj wybor auta.\n"
+      "Auto: klik na pojazd, potem klik na wolne miejsce (poza pasem).\n"
+      "Miejsc/rzad: %d  rzedy: %d  razem: %d  dlugosc: %.1f m  szerokosc: %.1f m\n",
+      scene_.generator().spotsPerRow(), scene_.generator().rowCount(),
+      scene_.generator().spotCount(), static_cast<double>(scene_.generator().length()),
+      static_cast<double>(scene_.generator().width()));
 }
 
 bool Application::consumeEscapeForSettings() {
@@ -123,11 +126,20 @@ void Application::handleWorldLeftClick(float fx, float fy, int fbW, int fbH) {
   }
 }
 
-void Application::applySpotCountFromUi() {
+void Application::applySpotsPerRowFromUi() {
   selectedCarPropIndex_.reset();
-  scene_.generator().setSpotCount(uiSpotCount_);
+  scene_.generator().setSpotsPerRow(uiSpotsPerRow_);
   scene_.generator().syncLengthToSpotCount();
-  uiSpotCount_ = scene_.generator().spotCount();
+  uiSpotsPerRow_ = scene_.generator().spotsPerRow();
+  updateWindowTitle();
+}
+
+void Application::applyRowCountFromUi() {
+  selectedCarPropIndex_.reset();
+  scene_.generator().setRowCount(uiRowCount_);
+  uiRowCount_ = scene_.generator().rowCount();
+  const float mg = ParkingGenerator::grassMarginMeters();
+  camera_.setBoundsFromLot(scene_.generator().halfLength(), scene_.generator().halfWidth(), mg);
   updateWindowTitle();
 }
 
@@ -136,12 +148,14 @@ void Application::updateWindowTitle() {
     glfwSetWindowTitle(window_.native(), kTitleNormal);
     return;
   }
-  char buf[160];
+  char buf[200];
   const char* lum =
       scene_.lighting().mode() == LightingMode::Day ? "dzien" : "noc";
   std::snprintf(buf, sizeof(buf),
-                "USTAWIENIA [%d miejsc | %s]  [ ] N swiatlo  ESC  (%.1f m)",
-                uiSpotCount_, lum, static_cast<double>(scene_.generator().length()));
+                "USTAWIENIA [%d rzedow x %d miejsc = %d | %s]  [ ] miejsca, , . rzedy, N swiatlo, ESC  (%.1f x %.1f m)",
+                uiRowCount_, uiSpotsPerRow_, scene_.generator().spotCount(), lum,
+                static_cast<double>(scene_.generator().length()),
+                static_cast<double>(scene_.generator().width()));
   glfwSetWindowTitle(window_.native(), buf);
 }
 
@@ -149,6 +163,8 @@ void Application::handleParkingSettingsKeys() {
   if (!settingsOpen_) {
     prevBracketLeft_ = false;
     prevBracketRight_ = false;
+    prevCommaKey_ = false;
+    prevPeriodKey_ = false;
     prevKeyN_ = false;
     return;
   }
@@ -156,17 +172,29 @@ void Application::handleParkingSettingsKeys() {
   GLFWwindow* w = window_.native();
   const bool left = glfwGetKey(w, GLFW_KEY_LEFT_BRACKET) == GLFW_PRESS;
   const bool right = glfwGetKey(w, GLFW_KEY_RIGHT_BRACKET) == GLFW_PRESS;
+  const bool comma = glfwGetKey(w, GLFW_KEY_COMMA) == GLFW_PRESS;
+  const bool period = glfwGetKey(w, GLFW_KEY_PERIOD) == GLFW_PRESS;
   const bool keyN = glfwGetKey(w, GLFW_KEY_N) == GLFW_PRESS;
 
   if (left && !prevBracketLeft_) {
-    uiSpotCount_ =
-        std::clamp(uiSpotCount_ - 1, ParkingGenerator::kMinSpots, ParkingGenerator::kMaxSpots);
-    applySpotCountFromUi();
+    uiSpotsPerRow_ = std::clamp(uiSpotsPerRow_ - 1, ParkingGenerator::kMinSpotsPerRow,
+                                ParkingGenerator::kMaxSpotsPerRow);
+    applySpotsPerRowFromUi();
   }
   if (right && !prevBracketRight_) {
-    uiSpotCount_ =
-        std::clamp(uiSpotCount_ + 1, ParkingGenerator::kMinSpots, ParkingGenerator::kMaxSpots);
-    applySpotCountFromUi();
+    uiSpotsPerRow_ = std::clamp(uiSpotsPerRow_ + 1, ParkingGenerator::kMinSpotsPerRow,
+                                ParkingGenerator::kMaxSpotsPerRow);
+    applySpotsPerRowFromUi();
+  }
+  if (comma && !prevCommaKey_) {
+    uiRowCount_ = std::clamp(uiRowCount_ - 1, ParkingGenerator::kMinRows,
+                             ParkingGenerator::kMaxRows);
+    applyRowCountFromUi();
+  }
+  if (period && !prevPeriodKey_) {
+    uiRowCount_ = std::clamp(uiRowCount_ + 1, ParkingGenerator::kMinRows,
+                             ParkingGenerator::kMaxRows);
+    applyRowCountFromUi();
   }
   if (keyN && !prevKeyN_) {
     Lighting& lit = scene_.lighting();
@@ -176,6 +204,8 @@ void Application::handleParkingSettingsKeys() {
 
   prevBracketLeft_ = left;
   prevBracketRight_ = right;
+  prevCommaKey_ = comma;
+  prevPeriodKey_ = period;
   prevKeyN_ = keyN;
 }
 

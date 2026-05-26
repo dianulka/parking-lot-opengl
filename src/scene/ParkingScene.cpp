@@ -21,47 +21,78 @@ constexpr float kYawRight = 3.14159265f;
 /// Pudełko pick w przestrzeni modelu (auto znormalizowane ~4.5 m); środek modelu ~środek pojazdu.
 const glm::vec3 kCarPickHalfExtents(2.15f, 0.52f, 1.0f);
 
+/// Geometria parkingu z obsługą R równoległych rzędów (każde +1 do rowCount = +1 alejka + +1 rząd).
 struct LotGeom {
   float L{};
   float halfL{};
   float halfW{};
-  float halfA{};
-  int nLeft{};
-  int nRight{};
-  float dxL{};
-  float dxR{};
-  float zLeftCenter{};
-  float zRightCenter{};
+  float halfA{};                       // half-szerokość pojedynczej alejki
+  float spotDepth{};                   // głębokość rzędu w Z
+  int rowCount{};
+  int spotsPerRow{};
+  float dx{};                          // krok w X między miejscami (jednakowy dla każdego rzędu)
+  std::vector<float> rowCenterZ;       // środki rzędów w Z (rozmiar = rowCount)
+  std::vector<float> aisleCenterZ;     // środki alejek (rozmiar = rowCount - 1)
+  std::vector<float> rowYaw;           // yaw aut w danym rzędzie
   float grassL{};
   float gHalfL{};
 };
 
 void fillLotGeom(const ParkingGenerator& gen, LotGeom& g) {
   g.L = gen.length();
-  const float W = ParkingGenerator::fixedWidth();
+  const float W = gen.width();
   const float aisle = ParkingGenerator::aisleWidthMeters();
   const float mg = ParkingGenerator::grassMarginMeters();
   g.halfL = g.L * 0.5f;
   g.halfW = W * 0.5f;
   g.halfA = aisle * 0.5f;
+  g.spotDepth = ParkingGenerator::spotDepthMeters();
+  g.rowCount = std::max(2, gen.rowCount());
+  g.spotsPerRow = std::max(1, gen.spotsPerRow());
+  g.dx = g.L / static_cast<float>(g.spotsPerRow);
   g.grassL = g.L + 2.0f * mg;
   g.gHalfL = g.grassL * 0.5f;
-  g.nLeft = std::max(1, gen.leftRowSpotCount());
-  g.nRight = std::max(1, gen.rightRowSpotCount());
-  g.dxL = g.L / static_cast<float>(g.nLeft);
-  g.dxR = g.L / static_cast<float>(g.nRight);
-  g.zLeftCenter = -(g.halfW + g.halfA) * 0.5f;
-  g.zRightCenter = (g.halfW + g.halfA) * 0.5f;
+
+  g.rowCenterZ.clear();
+  g.rowCenterZ.reserve(static_cast<size_t>(g.rowCount));
+  const float step = g.spotDepth + aisle;
+  const float startZ = -g.halfW + g.spotDepth * 0.5f;
+  for (int k = 0; k < g.rowCount; ++k) {
+    g.rowCenterZ.push_back(startZ + static_cast<float>(k) * step);
+  }
+  g.aisleCenterZ.clear();
+  g.aisleCenterZ.reserve(static_cast<size_t>(std::max(0, g.rowCount - 1)));
+  for (int k = 0; k < g.rowCount - 1; ++k) {
+    g.aisleCenterZ.push_back(0.5f * (g.rowCenterZ[k] + g.rowCenterZ[k + 1]));
+  }
+
+  // Yaw aut: "tyłem do najbliższej alejki" — skrajne rzędy jednoznacznie, środkowe rzędy orientujemy
+  // wg znaku zc (z < 0 jak stary lewy rząd, z >= 0 jak prawy).
+  constexpr float kPi = 3.14159265f;
+  g.rowYaw.clear();
+  g.rowYaw.reserve(static_cast<size_t>(g.rowCount));
+  for (int k = 0; k < g.rowCount; ++k) {
+    if (k == 0) {
+      g.rowYaw.push_back(0.0f);
+    } else if (k == g.rowCount - 1) {
+      g.rowYaw.push_back(kPi);
+    } else {
+      g.rowYaw.push_back(g.rowCenterZ[static_cast<size_t>(k)] < 0.0f ? 0.0f : kPi);
+    }
+  }
 }
 
 bool carOnSpotOk(const LotGeom& g, float x, float z) {
   if (std::abs(x) > g.halfL + 0.01f) {
     return false;
   }
-  if (std::abs(z) < g.halfA - 0.01f) {
-    return false;
+  const float halfDepth = g.spotDepth * 0.5f + 0.01f;
+  for (float zc : g.rowCenterZ) {
+    if (std::abs(z - zc) <= halfDepth) {
+      return true;
+    }
   }
-  return true;
+  return false;
 }
 
 bool raySlabAabb(const glm::vec3& o, const glm::vec3& d, const glm::vec3& bmin, const glm::vec3& bmax, float& tHit) {
@@ -95,21 +126,33 @@ bool raySlabAabb(const glm::vec3& o, const glm::vec3& d, const glm::vec3& bmin, 
 }
 
 bool snapHitToSpot(const LotGeom& g, float hitX, float hitZ, float& outX, float& outZ, float& outYaw) {
-  constexpr float kAisleMargin = 0.02f;
-  if (std::abs(hitZ) < g.halfA - kAisleMargin) {
+  if (g.rowCenterZ.empty()) {
     return false;
   }
-  const float distL = std::abs(hitZ - g.zLeftCenter);
-  const float distR = std::abs(hitZ - g.zRightCenter);
-  const bool useLeft = distL <= distR;
-  const int n = useLeft ? g.nLeft : g.nRight;
-  const float dx = useLeft ? g.dxL : g.dxR;
+  // Wybór najbliższego rzędu po Z; odrzucamy klik na alejce (przerwa między rzędami).
+  int bestRow = -1;
+  float bestDist = std::numeric_limits<float>::infinity();
+  for (int k = 0; k < static_cast<int>(g.rowCenterZ.size()); ++k) {
+    const float d = std::abs(hitZ - g.rowCenterZ[static_cast<size_t>(k)]);
+    if (d < bestDist) {
+      bestDist = d;
+      bestRow = k;
+    }
+  }
+  if (bestRow < 0) {
+    return false;
+  }
+  // Wewnątrz rzędu (a nie alejki).
+  if (bestDist > g.spotDepth * 0.5f + 0.01f) {
+    return false;
+  }
+  const float dx = g.dx;
   const float t = (hitX + g.halfL) / dx - 0.5f;
   int idx = static_cast<int>(std::lround(t));
-  idx = std::clamp(idx, 0, n - 1);
+  idx = std::clamp(idx, 0, g.spotsPerRow - 1);
   outX = -g.halfL + (static_cast<float>(idx) + 0.5f) * dx;
-  outZ = useLeft ? g.zLeftCenter : g.zRightCenter;
-  outYaw = useLeft ? kYawLeft : kYawRight;
+  outZ = g.rowCenterZ[static_cast<size_t>(bestRow)];
+  outYaw = g.rowYaw[static_cast<size_t>(bestRow)];
   return carOnSpotOk(g, outX, outZ);
 }
 
@@ -119,9 +162,11 @@ ParkingScene::ParkingScene(ParkingGenerator generator) : generator_(std::move(ge
 
 uint64_t ParkingScene::layoutHash() const {
   const uint32_t lenBits = static_cast<uint32_t>(generator_.length() * 1000.0f);
-  const uint32_t spots = static_cast<uint32_t>(generator_.spotCount());
-  constexpr uint32_t kPlacementVer = 20u;
-  return (static_cast<uint64_t>(lenBits) << 32) | static_cast<uint64_t>(spots ^ (kPlacementVer * 0x9E3779B1u));
+  const uint32_t rows = static_cast<uint32_t>(generator_.rowCount());
+  const uint32_t perRow = static_cast<uint32_t>(generator_.spotsPerRow());
+  constexpr uint32_t kPlacementVer = 22u;
+  const uint32_t lo = perRow ^ (rows * 0x9E3779B1u) ^ (kPlacementVer * 0x85EBCA77u);
+  return (static_cast<uint64_t>(lenBits) << 32) | static_cast<uint64_t>(lo);
 }
 
 void ParkingScene::syncPlacements() {
@@ -142,21 +187,17 @@ void ParkingScene::rebuildPlacements() {
 
   const float halfL = lg.halfL;
   const float halfW = lg.halfW;
-  const float halfA = lg.halfA;
   const float gHalfL = lg.gHalfL;
-  const int nLeft = lg.nLeft;
-  const int nRight = lg.nRight;
-  const float dxL = lg.dxL;
-  const float dxR = lg.dxR;
-  const float zLeftCenter = lg.zLeftCenter;
-  const float zRightCenter = lg.zRightCenter;
+  const float dx = lg.dx;
+  const int spotsPerRow = lg.spotsPerRow;
+  const int rowCount = lg.rowCount;
 
-  auto spotXLeft = [&](int idx) { return -halfL + (static_cast<float>(idx) + 0.5f) * dxL; };
-  auto spotXRight = [&](int idx) { return -halfL + (static_cast<float>(idx) + 0.5f) * dxR; };
+  auto spotXAt = [&](int idx) { return -halfL + (static_cast<float>(idx) + 0.5f) * dx; };
 
   constexpr float kCarScale = 1.0f;
 
-  const int totalSpots = nLeft + nRight;
+  const int totalSpots = spotsPerRow * rowCount;
+  // Cel: ok. 40% miejsc zajętych, ale nie więcej niż 20 aut (limity sceny).
   int targetCars = (totalSpots * 2) / 5;
   targetCars = std::max(1, targetCars);
   const int maxCars = std::min(20, std::max(1, totalSpots - 1));
@@ -169,18 +210,14 @@ void ParkingScene::rebuildPlacements() {
   };
   std::vector<CarSpot> carSpots;
   carSpots.reserve(static_cast<size_t>(totalSpots));
-  for (int i = 0; i < nLeft; ++i) {
-    const float x = spotXLeft(i);
-    const float z = zLeftCenter;
-    if (carOnSpotOk(lg, x, z)) {
-      carSpots.push_back({x, z, kYawLeft});
-    }
-  }
-  for (int i = 0; i < nRight; ++i) {
-    const float x = spotXRight(i);
-    const float z = zRightCenter;
-    if (carOnSpotOk(lg, x, z)) {
-      carSpots.push_back({x, z, kYawRight});
+  for (int k = 0; k < rowCount; ++k) {
+    const float z = lg.rowCenterZ[static_cast<size_t>(k)];
+    const float yaw = lg.rowYaw[static_cast<size_t>(k)];
+    for (int i = 0; i < spotsPerRow; ++i) {
+      const float x = spotXAt(i);
+      if (carOnSpotOk(lg, x, z)) {
+        carSpots.push_back({x, z, yaw});
+      }
     }
   }
 
@@ -206,14 +243,19 @@ void ParkingScene::rebuildPlacements() {
   auto yawOuterNegZ = [](float x) { return x < 0.0f ? (0.65f + kPi) : (-0.65f + kPi); };
   auto yawOuterPosZ = [](float x) { return x < 0.0f ? -0.65f : 0.65f; };
 
+  // Lampy na 4 narożnikach parkingu.
   props_.push_back({PropKind::Lamp, {-halfL + inset, 0.0f, -halfW + inset}, 0.65f + kPi, kLampScale});
   props_.push_back({PropKind::Lamp, {halfL - inset, 0.0f, -halfW + inset}, -0.65f + kPi, kLampScale});
   props_.push_back({PropKind::Lamp, {-halfL + inset, 0.0f, halfW - inset}, -0.65f, kLampScale});
   props_.push_back({PropKind::Lamp, {halfL - inset, 0.0f, halfW - inset}, 0.65f, kLampScale});
 
-  props_.push_back({PropKind::Lamp, {-gHalfL * kRoadEndX, 0.0f, 0.0f}, 0.0f, kLampScale});
-  props_.push_back({PropKind::Lamp, {gHalfL * kRoadEndX, 0.0f, 0.0f}, 3.14159265f, kLampScale});
+  // Lampy na końcach każdej alejki (po lewej i prawej krawędzi parkingu).
+  for (float zAisle : lg.aisleCenterZ) {
+    props_.push_back({PropKind::Lamp, {-gHalfL * kRoadEndX, 0.0f, zAisle}, 0.0f, kLampScale});
+    props_.push_back({PropKind::Lamp, {gHalfL * kRoadEndX, 0.0f, zAisle}, kPi, kLampScale});
+  }
 
+  // Lampy wzdłuż drogi dojazdowej do parkingu (poza obrysem) — przebieg po Z=0 jak dotąd.
   constexpr float kRoadLampAlongStepM = 100.0f;
   constexpr float kRoadLampEdgeMargin = 12.0f;
   const float roadXMin = -gHalfL + kRoadLampEdgeMargin;
@@ -224,16 +266,16 @@ void ParkingScene::rebuildPlacements() {
     props_.push_back({PropKind::Lamp, {x, 0.0f, 0.0f}, 0.0f, kLampScale});
   }
   for (float x = parkEdgeRight; x < roadXMax; x += kRoadLampAlongStepM) {
-    props_.push_back({PropKind::Lamp, {x, 0.0f, 0.0f}, 3.14159265f, kLampScale});
+    props_.push_back({PropKind::Lamp, {x, 0.0f, 0.0f}, kPi, kLampScale});
   }
 
-  const int nAlong = std::max(nLeft, nRight);
-  if (nAlong >= kLampEveryNSpots) {
-    const float dxAlong = gen.length() / static_cast<float>(nAlong);
+  // Dodatkowe lampy co kLampEveryNSpots na zewnętrznych krawędziach parkingu (góra/dół po Z).
+  if (spotsPerRow >= kLampEveryNSpots) {
+    const float dxAlong = gen.length() / static_cast<float>(spotsPerRow);
     auto xAlong = [&](int i) { return -halfL + (static_cast<float>(i) + 0.5f) * dxAlong; };
     constexpr int kMaxExtraPairs = 21;
     int pairs = 0;
-    for (int i = kLampEveryNSpots - 1; i < nAlong && pairs < kMaxExtraPairs; i += kLampEveryNSpots) {
+    for (int i = kLampEveryNSpots - 1; i < spotsPerRow && pairs < kMaxExtraPairs; i += kLampEveryNSpots) {
       const float x = xAlong(i);
       props_.push_back({PropKind::Lamp, {x, 0.0f, -halfW + inset}, yawOuterNegZ(x), kLampScale});
       props_.push_back({PropKind::Lamp, {x, 0.0f, halfW - inset}, yawOuterPosZ(x), kLampScale});
@@ -278,7 +320,7 @@ bool ParkingScene::tryMoveCarToWorldXZ(size_t propIndex, float worldHitX, float 
   if (!snapHitToSpot(g, worldHitX, worldHitZ, sx, sz, yaw)) {
     return false;
   }
-  const float sep = std::min(g.dxL, g.dxR) * 0.35f;
+  const float sep = g.dx * 0.35f;
   const float sep2 = sep * sep;
   for (size_t i = 0; i < props_.size(); ++i) {
     if (props_[i].kind != PropKind::Car || i == propIndex) {

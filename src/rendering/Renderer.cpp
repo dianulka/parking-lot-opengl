@@ -89,44 +89,52 @@ void buildParkingLines(const ParkingGenerator& gen, float y, std::vector<float>&
   out.clear();
 
   const float L = gen.length();
-  const float W = ParkingGenerator::fixedWidth();
+  const float W = gen.width();
   const float aisle = ParkingGenerator::aisleWidthMeters();
+  const float spotDepth = ParkingGenerator::spotDepthMeters();
   const float halfL = L * 0.5f;
   const float halfW = W * 0.5f;
-  const float halfA = aisle * 0.5f;
+  const int rowCount = std::max(2, gen.rowCount());
+  const int spotsPerRow = std::max(1, gen.spotsPerRow());
+  const float dx = L / static_cast<float>(spotsPerRow);
 
-  const float zLeftOuter = -halfW;
-  const float zLeftInner = -halfA;
-  const float zRightInner = halfA;
-  const float zRightOuter = halfW;
+  const float step = spotDepth + aisle;
+  const float startCenter = -halfW + spotDepth * 0.5f;
 
-  // Przód i tył płyty (wzdłuż X) — bez linii w środku jezdni
-  appendLine(out, y, -halfL, zLeftOuter, halfL, zLeftOuter);
-  appendLine(out, y, -halfL, zRightOuter, halfL, zRightOuter);
-
-  // Boki przy x = ±halfL: tylko odcinki przy miejscach (przerwa między = jezdnia)
-  appendLine(out, y, -halfL, zLeftOuter, -halfL, zLeftInner);
-  appendLine(out, y, -halfL, zRightInner, -halfL, zRightOuter);
-  appendLine(out, y, halfL, zLeftOuter, halfL, zLeftInner);
-  appendLine(out, y, halfL, zRightInner, halfL, zRightOuter);
-
-  // Granica rząd ↔ pas jezdni
-  appendLine(out, y, -halfL, zLeftInner, halfL, zLeftInner);
-  appendLine(out, y, -halfL, zRightInner, halfL, zRightInner);
-
-  const int nLeft = std::max(1, gen.leftRowSpotCount());
-  const int nRight = std::max(1, gen.rightRowSpotCount());
-  const float dxL = L / static_cast<float>(nLeft);
-  const float dxR = L / static_cast<float>(nRight);
-
-  for (int i = 0; i <= nLeft; ++i) {
-    const float x = -halfL + static_cast<float>(i) * dxL;
-    appendLine(out, y, x, zLeftOuter, x, zLeftInner);
+  // Granice każdego rzędu w Z: [zMin, zMax].
+  std::vector<std::pair<float, float>> rows;
+  rows.reserve(static_cast<size_t>(rowCount));
+  for (int k = 0; k < rowCount; ++k) {
+    const float c = startCenter + static_cast<float>(k) * step;
+    rows.emplace_back(c - spotDepth * 0.5f, c + spotDepth * 0.5f);
   }
 
-  for (int i = 0; i <= nRight; ++i) {
-    const float x = -halfL + static_cast<float>(i) * dxR;
-    appendLine(out, y, x, zRightInner, x, zRightOuter);
+  // Zewnętrzne długie krawędzie parkingu (góra/dół po Z).
+  appendLine(out, y, -halfL, -halfW, halfL, -halfW);
+  appendLine(out, y, -halfL, halfW, halfL, halfW);
+
+  // Każdy rząd: krawędzie boczne (granica rząd ↔ alejka) + zaślepki na końcach + podziały miejsc.
+  for (int k = 0; k < rowCount; ++k) {
+    const float zMin = rows[static_cast<size_t>(k)].first;
+    const float zMax = rows[static_cast<size_t>(k)].second;
+
+    // Granica rząd ↔ alejka (po obu stronach rzędu, ale tylko jeśli alejka istnieje).
+    if (k > 0) {
+      appendLine(out, y, -halfL, zMin, halfL, zMin);
+    }
+    if (k < rowCount - 1) {
+      appendLine(out, y, -halfL, zMax, halfL, zMax);
+    }
+
+    // Krótkie zaślepki rzędu przy x = ±halfL (przerwa między to alejki/jezdnie).
+    appendLine(out, y, -halfL, zMin, -halfL, zMax);
+    appendLine(out, y, halfL, zMin, halfL, zMax);
+
+    // Podziały miejsc wewnątrz rzędu.
+    for (int i = 0; i <= spotsPerRow; ++i) {
+      const float x = -halfL + static_cast<float>(i) * dx;
+      appendLine(out, y, x, zMin, x, zMax);
+    }
   }
 }
 
@@ -501,8 +509,8 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
     flatShader_.setFloat("uAlpha", kDimAlpha);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
-    constexpr float cw = 580.0f;
-    constexpr float ch = 348.0f;
+    constexpr float cw = 640.0f;
+    constexpr float ch = 416.0f;
     constexpr float titleH = 48.0f;
     constexpr float kFontScale = 2.05f;
     constexpr float kFontScaleSmall = 1.55f;
@@ -562,15 +570,20 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
     char line3[160];
     char line4[160];
     char line5[160];
-    std::snprintf(line1, sizeof(line1), "Miejsca postojowe: %d", gen.spotCount());
-    std::snprintf(line2, sizeof(line2), "Długość parkingu: %.0f m",
+    char line6[160];
+    std::snprintf(line1, sizeof(line1), "Miejsca na rzad: %d  (razem %d)",
+                  gen.spotsPerRow(), gen.spotCount());
+    std::snprintf(line2, sizeof(line2), "Liczba rzedow: %d  (szerokosc: %.0f m)",
+                  gen.rowCount(), static_cast<double>(gen.width()));
+    std::snprintf(line3, sizeof(line3), "Długość parkingu: %.0f m",
                   static_cast<double>(gen.length()));
-    std::snprintf(line3, sizeof(line3), "Oświetlenie: %s  —  klawisz N przełącza dzień / noc",
+    std::snprintf(line4, sizeof(line4), "Oświetlenie: %s  —  klawisz N przełącza dzień / noc",
                   lightingMode == LightingMode::Day ? "dzien" : "noc");
-    std::snprintf(line4, sizeof(line4), "Miejsca: [ ] zmiana | ESC — zamknij panel");
-    const int smin = ParkingGenerator::kMinSpots;
-    const int smax = ParkingGenerator::kMaxSpots;
-    std::snprintf(line5, sizeof(line5), "min %d  <--- wiecej w prawo --->  max %d", smin, smax);
+    std::snprintf(line5, sizeof(line5),
+                  "Miejsca: [ ]  |  Rzedy: , .  |  ESC — zamknij panel");
+    const int smin = ParkingGenerator::kMinSpotsPerRow;
+    const int smax = ParkingGenerator::kMaxSpotsPerRow;
+    std::snprintf(line6, sizeof(line6), "min %d  <--- wiecej w prawo --->  max %d", smin, smax);
 
     constexpr float padBody = 28.0f;
     const float textLeft = mx0 + padBody;
@@ -583,6 +596,8 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
     appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line3, hudTriBody);
     lineY += 23.0f * kFontScale;
     appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line4, hudTriBody);
+    lineY += 23.0f * kFontScale;
+    appendEasyFontTriangles(fh, textLeft, lineY, kFontScale, line5, hudTriBody);
     flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriBody, 0.76f, 0.82f, 0.92f, 0.94f);
 
     constexpr float padX = 52.0f;
@@ -594,7 +609,7 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
 
     const float labelPrintY = fh - by1 - 22.0f;
     hudTriSmall.clear();
-    appendEasyFontTriangles(fh, textLeft, labelPrintY, kFontScaleSmall, line5, hudTriSmall);
+    appendEasyFontTriangles(fh, textLeft, labelPrintY, kFontScaleSmall, line6, hudTriSmall);
     flushHudTriangles(flatShader_, lineVao_, lineVbo_, ortho, hudTriSmall, 0.52f, 0.60f, 0.74f, 0.88f);
 
     const float trackVerts[] = {
@@ -607,7 +622,7 @@ void Renderer::drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& g
     flatShader_.setFloat("uAlpha", 0.86f);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
-    float t = (static_cast<float>(gen.spotCount() - smin)) / static_cast<float>(smax - smin);
+    float t = (static_cast<float>(gen.spotsPerRow() - smin)) / static_cast<float>(smax - smin);
     t = std::clamp(t, 0.0f, 1.0f);
     const float span = bx1 - bx0;
     const float fillW = std::max(4.0f, span * t);
@@ -742,7 +757,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
   grassBlades_.rebuildIfNeeded(gen);
 
   const float L = gen.length();
-  const float W = ParkingGenerator::fixedWidth();
+  const float W = gen.width();
   const float aisle = ParkingGenerator::aisleWidthMeters();
   const float mg = ParkingGenerator::grassMarginMeters();
   const float grassL = L + 2.0f * mg;

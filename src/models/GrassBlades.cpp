@@ -26,9 +26,10 @@ bool isGrassZone(float x, float z, float halfL, float halfW, float halfGrassL, f
 
 unsigned packCacheKey(const ParkingGenerator& gen) {
   const unsigned a = static_cast<unsigned>(gen.length() * 1000.0f);
-  const unsigned b = static_cast<unsigned>(gen.spotCount()) * 2654435761u;
-  constexpr unsigned kPlacementVer = 8u;
-  return a ^ b ^ (kPlacementVer * 1315423911u);
+  const unsigned b = static_cast<unsigned>(gen.spotsPerRow()) * 2654435761u;
+  const unsigned c = static_cast<unsigned>(gen.rowCount()) * 0x85EBCA77u;
+  constexpr unsigned kPlacementVer = 10u;
+  return a ^ b ^ c ^ (kPlacementVer * 1315423911u);
 }
 
 }  // namespace
@@ -118,7 +119,7 @@ void GrassBlades::rebuildIfNeeded(const ParkingGenerator& gen) {
   cacheKey_ = key;
 
   const float L = gen.length();
-  const float W = ParkingGenerator::fixedWidth();
+  const float W = gen.width();
   const float aisle = ParkingGenerator::aisleWidthMeters();
   const float mg = ParkingGenerator::grassMarginMeters();
   const float grassL = L + 2.0f * mg;
