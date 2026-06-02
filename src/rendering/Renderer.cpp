@@ -743,7 +743,7 @@ void Renderer::drawHudCornerOverlay(const glm::mat4& ortho, bool parkingSettings
 }
 
 void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen,
-                    bool carAwaitingDestination) {
+                    bool carAwaitingDestination, bool potholeVisible) {
   if (fbWidth_ <= 0 || fbHeight_ <= 0) {
     return;
   }
@@ -884,6 +884,7 @@ void Renderer::draw(ParkingScene& scene, Camera& camera, float timeSec, bool par
     groundShader_.setFloat("uHalfParkingW", W * 0.5f);
     groundShader_.setFloat("uHalfRoadW", roadW * 0.5f);
     groundShader_.setFloat("uHalfGrassL", grassL * 0.5f);
+    groundShader_.setBool("uPotholeVisible", potholeVisible);
     groundShader_.setInt("uNumPointLights", lampPointLightCount);
     if (lampPointLightCount > 0) {
       groundShader_.setVec3v("uPointPos", lampPointPos.data(), lampPointLightCount);
