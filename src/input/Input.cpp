@@ -5,6 +5,7 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include "lighting/Lighting.hpp"
 
 namespace parking {
 
@@ -36,6 +37,11 @@ void Input::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int actio
       }
       glfwSetWindowShouldClose(window, GLFW_TRUE);
       break;
+    case GLFW_KEY_L: {
+        Lighting& lit = h->scene->lighting();
+        lit.setMode(lit.mode() == LightingMode::Day ? LightingMode::Night : LightingMode::Day);
+        break;
+      }
     default:
       break;
   }

@@ -224,11 +224,18 @@ void Application::scrollCallback(GLFWwindow* window, double /*xoffset*/, double 
 }
 
 void Application::mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
-  if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS) {
-    return;
-  }
   auto* h = static_cast<WindowHooks*>(glfwGetWindowUserPointer(window));
   if (!h || !h->app) {
+    return;
+  }
+
+  // Prawy przycisk — anuluj wybór auta i zakończ.
+  if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+    h->app->consumeEscapeForCarSelection();
+    return;
+  }
+
+  if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS) {
     return;
   }
 

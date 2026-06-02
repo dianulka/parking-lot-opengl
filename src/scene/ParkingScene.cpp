@@ -142,6 +142,9 @@ bool snapHitToSpot(const LotGeom& g, float hitX, float hitZ, float& outX, float&
   if (bestRow < 0) {
     return false;
   }
+  if (bestRow == 0) {
+    return false;
+  }
   // Wewnątrz rzędu (a nie alejki).
   if (bestDist > g.spotDepth * 0.5f + 0.01f) {
     return false;
