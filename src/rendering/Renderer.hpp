@@ -29,7 +29,7 @@ public:
   void init();
   void resize(int width, int height);
   void draw(ParkingScene& scene, Camera& camera, float timeSec, bool parkingSettingsOpen,
-            bool carAwaitingDestination);
+            bool carAwaitingDestination, bool potholeVisible);
 
 private:
   void drawOverlayUi(bool parkingSettingsOpen, const ParkingGenerator& gen, LightingMode lightingMode,

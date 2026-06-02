@@ -65,7 +65,7 @@ Application::Application(ParkingScene&& scene)
   std::printf(
       "Sterowanie: WASD — przesuniecie | strzalki — obrot | scroll — zoom\n"
       "Panel: klik przycisk w lewym górnym rogu — nakładka i okno ustawień. "
-      "[ ] — miejsca na rzad; , . — liczba rzedow; N — dzien / noc; ESC — zamknij panel / anuluj wybor auta.\n"
+      "[ ] — miejsca na rzad; , . — liczba rzedow; N — dzien / noc; G — ukryj dziure; ESC — zamknij panel / anuluj wybor auta.\n"
       "Auto: klik na pojazd, potem klik na wolne miejsce (poza pasem).\n"
       "Miejsc/rzad: %d  rzedy: %d  razem: %d  dlugosc: %.1f m  szerokosc: %.1f m\n",
       scene_.generator().spotsPerRow(), scene_.generator().rowCount(),
@@ -306,10 +306,14 @@ int Application::run() {
     last = now;
 
     handleParkingSettingsKeys();
+    if (glfwGetKey(window_.native(), GLFW_KEY_G) == GLFW_PRESS) {
+      potholeVisible_ = false;
+    }
     updateCamera(window_.native(), camera_, dt);
 
     sanitizeCarSelection();
-    renderer_.draw(scene_, camera_, static_cast<float>(now), settingsOpen_, selectedCarPropIndex_.has_value());
+    renderer_.draw(scene_, camera_, static_cast<float>(now), settingsOpen_, selectedCarPropIndex_.has_value(),
+                   potholeVisible_);
 
     window_.swapBuffers();
     window_.pollEvents();

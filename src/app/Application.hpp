@@ -53,6 +53,7 @@ private:
   bool prevCommaKey_{false};
   bool prevPeriodKey_{false};
   bool prevKeyN_{false};
+  bool potholeVisible_{true};
   std::optional<size_t> selectedCarPropIndex_{};
 };
 

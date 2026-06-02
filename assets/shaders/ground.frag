@@ -21,6 +21,7 @@ uniform float uHalfParkingL;
 uniform float uHalfParkingW;
 uniform float uHalfRoadW;
 uniform float uHalfGrassL;
+uniform bool uPotholeVisible;
 
 uniform int uNumPointLights;
 uniform vec3 uPointPos[MAX_POINT_LIGHTS];
@@ -80,6 +81,9 @@ void main() {
     base = colRoad;
   } else {
     base = colGrass;
+  }
+  if (uPotholeVisible && length((vec2(x, z) - vec2(0.0, 2.0)) / vec2(2.0, 1.0)) < 1.0) {
+    base = vec3(0.015, 0.013, 0.012);
   }
 
   vec3 pointDiff = vec3(0.0);
